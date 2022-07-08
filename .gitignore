@@ -1,0 +1,6 @@
+data/
+code/venv/
+code/.idea/
+code/__pycache__/
+weights/
+past_images/
