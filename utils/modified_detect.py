@@ -27,6 +27,7 @@ Usage - formats:
 import argparse
 import os
 import sys
+import sqlite3
 from pathlib import Path
 
 import torch
@@ -46,8 +47,20 @@ from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, time_sync
 
 
+def insert_data(filename, sql, idx, detections, coordinates = ''):
+    conn = sqlite3.connect('../db/' + filename + '.db')
+    print(conn)
+    data = (idx, detections, coordinates)
+    if conn is not None:
+        cur = conn.cursor()
+        cur.execute(sql, data)
+        conn.commit()
+
+
 @torch.no_grad()
 def run(
+        originalName='',
+        idx=0,
         weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
         source=ROOT / 'data/images',  # file/dir/URL/glob, 0 for webcam
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
@@ -75,6 +88,12 @@ def run(
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
 ):
+
+    sql = 'INSERT INTO frameInfo(frameIndex, detections, coordinates)' \
+          'VALUES(?, ?, ?)'
+    detections = ''
+    coordinates = ''
+
     source = str(source)
     save_img = not nosave and not source.endswith('.txt')  # save inference images
     is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
@@ -149,11 +168,17 @@ def run(
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
+                coordinates = det[:, :4]
 
                 # Print results
                 for c in det[:, -1].unique():
                     n = (det[:, -1] == c).sum()  # detections per class
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
+                    detections = detections + names[int(c)] + ', '
+
+                if detections.replace(', ', '') == '':
+                    detections = 'None'
+                print(detections, '-' * 100)
 
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
@@ -211,6 +236,8 @@ def run(
     if update:
         strip_optimizer(weights)  # update model (to fix SourceChangeWarning)
 
+    insert_data(originalName, sql, int(idx), detections, str(coordinates))
+
 
 def parse_opt():
     parser = argparse.ArgumentParser()
@@ -240,9 +267,11 @@ def parse_opt():
     parser.add_argument('--hide-conf', default=False, action='store_true', help='hide confidences')
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
+    parser.add_argument('--idx', type=int, help='index of the frame to analyze')
+    parser.add_argument('--originalName', type=str, help='filename')
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
-    print_args(vars(opt))
+    # print_args(vars(opt))
     return opt
 
 
