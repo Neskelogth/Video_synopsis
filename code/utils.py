@@ -3,10 +3,10 @@ import os
 import mimetypes
 import subprocess
 import sys
-import time
 import shutil
 import sqlite3
 from sqlite3 import Error
+# import time
 
 # external modules imports
 import wget
@@ -15,9 +15,7 @@ import cv2
 from send2trash import send2trash
 # import concurrent.futures
 import ffmpeg
-
-# external file imports
-# from YOLO_integration import analyze_frame
+import numpy as np
 
 
 def check_requirements(file_path):
@@ -54,16 +52,17 @@ def check_if_db_exists(filename):
         :param filename: path of the file to be processed
         :return: True if the database exists
     """
+    return False  # test purposes
+    # name = filename.split('/')[-1][:-4]
+    # if os.path.exists('../db/' + name + '.db'):
+    #     return True
+    # return False
 
-    name = filename.split('/')[-1][:-4]
-    if os.path.exists('../db/' + name):
-        return True
-    return False
 
-
-def get_necessary_files(small):
+def get_necessary_files(small, gpu):
     """
         Gets all the necessary files for the script to work
+        :param gpu: True if the user wants to use the GPU for YOLO
         :param small: True if the small model of YOLO has to be used
         :return: Void
     """
@@ -75,31 +74,49 @@ def get_necessary_files(small):
     if not os.path.exists('yolov5'):
         os.mkdir('yolov5')
 
+    if not os.path.exists('frames'):
+        os.mkdir('frames')
+
+    # if not os.path.exists('frames/dummy_file.txt'):
+    #     os.mknod('frames/dummy_file.txt')
+
+    if not os.path.exists('weights'):
+        os.mkdir('weights')
+
     os.chdir('yolov5')
 
     if len(os.listdir('.')) == 0:
         git.Repo.clone_from('https://github.com/ultralytics/yolov5.git', '.')
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt'],
-                              stdout=subprocess.DEVNULL)
+        print('Cloned repo')
+        cmd = [sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt']
+        subprocess.check_call(cmd, stdout=subprocess.DEVNULL)
+        print('Installed requirements')
+        if gpu:
+            subprocess.check_call([sys.executable, '-m', 'pip', 'uninstall', 'torch', '-y'], stdout=subprocess.DEVNULL)
+            subprocess.check_call([sys.executable, '-m', 'pip', 'uninstall', 'torchvision', '-y'],
+                                  stdout=subprocess.DEVNULL)
+            subprocess.check_call([sys.executable, '-m', 'pip', 'uninstall', 'torchaudio', '-y'],
+                                  stdout=subprocess.DEVNULL)
+            print('Uninstalled torch')
+            path = '../utils/command.txt'
+            with open(path) as source:
+                command = source.read().split()
+                subprocess.check_call(command, stdout=subprocess.DEVNULL)
+            print('GPU support')
 
-    os.chdir('..')
-    print('Got YOLOv5 Repo')
-    if not os.path.exists('weights'):
-        os.mkdir('weights')
-
-    os.chdir('weights')
+    print('Got YOLOv5 Repo and installed requirements')
+    os.chdir('../weights')
 
     if len(os.listdir('.')) == 0:
         if small and not os.path.exists('yolov5s6.pt'):
             wget.download(small_link)
         elif not os.path.exists('yolov5x6.pt'):
             wget.download(xl_link)
+    print('Got YOLOv5 weights')
 
     os.chdir('..')
-    print('Got YOLOv5 weights')
     shutil.copy('utils/modified_detect.py', 'yolov5/modified_detect.py')
     os.chdir('code')
-    print('Moved modified detect file')
 
 
 def get_video_info(filename):
@@ -120,19 +137,7 @@ def get_video_info(filename):
     return frame_count, fps, duration, size
 
 
-def move_detect():
-    """
-        Moves the file modified_detect file to the yolov5 folder for later
-        :return: Void
-    """
-    if not os.path.exists('../yolov5/modified_detect.py'):
-        os.chdir('..')
-        os.rename('utils/modified_detect.py', 'yolov5/modified_detect.py')
-        os.chdir('code')
-
-
 def remove_past_runs():
-
     """
         Removes folder of past runs
         :return: Void
@@ -158,7 +163,7 @@ def create_db(name):
     path_of_db = '../db/' + name + '.db'
     try:
         conn = sqlite3.connect(path_of_db)
-        print('Connection established')
+        # print('Connection established')
     except Error as e:
         print(e)
         return None
@@ -193,24 +198,41 @@ def divide_into_frames(filename):
         :param filename: name of the file to be divided
         :return: Void
     """
-    os.chdir('../frames_of_video/')
+    os.chdir('../frames')
     for item in os.listdir('.'):
         if 'dummy_file' not in item:
             os.remove(item)
-    ffmpeg.input(filename).output('../frames_of_video/frame_%d.png', start_number=0).run(quiet=True)
+
+    ffmpeg.input(filename).output('../frames/frame_%d_0.png', start_number=0).run(quiet=True)
     os.chdir('../code/')
     print('Divided into frames')
 
 
-def process_video(filename, small):
+def rotate_frames():
+    os.chdir('../frames')
+    for file in os.listdir('.'):
+        if 'dummy_file' not in file:
+            image = cv2.imread(file)
+            cv2.imwrite(file[:-5] + '90.png', cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE))
+            cv2.imwrite(file[:-5] + '180.png', cv2.rotate(image, cv2.ROTATE_180))
+            cv2.imwrite(file[:-5] + '270.png', cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE))
+    os.chdir('../code')
+    print('Rotated frames')
 
-    MAX_NUMBER_OF_PROCESSES = 3
-    WEIGHTS_FILE = '../weights/yolov5x6.pt'
+
+def process_video(filename, small):
+    """
+        Analyzes all frames with YOLO
+        :param filename: path of the file to use
+        :param small: True if the user wants to use the small version of YOLO
+        :return: Void
+    """
+
+    weights_file = '../weights/yolov5x6.pt'
     if small:
-        WEIGHTS_FILE = '../weights/yolov5s6.pt'
+        weights_file = '../weights/yolov5s6.pt'
 
     name_of_video = filename.split('/')[-1][:-4]
-    print(name_of_video)
 
     remove_past_runs()
     db = create_db(name_of_video)
@@ -220,9 +242,12 @@ def process_video(filename, small):
         exit(3)
 
     sql_create_projects_table = """ CREATE TABLE IF NOT EXISTS frameInfo (
-                                            frameIndex integer PRIMARY KEY,
+                                            frameIndex integer,
                                             detections text ,
-                                            coordinates text
+                                            coordinates text,
+                                            rotation integer DEFAULT 0,
+                                            tag text DEFAULT '',
+                                            PRIMARY KEY(frameIndex, rotation)
                                         ); """
 
     table_created = create_table(db, sql_create_projects_table)
@@ -230,72 +255,21 @@ def process_video(filename, small):
         print('Something went wrong while creating the table')
         exit(3)
 
-    # divide_into_frames(filename)  # for test purposes, it's commented
+    # divide_into_frames(filename)
+    # rotate_frames()
 
-    # found_something = []
-    current_processes = []
-    frames = [item for item in os.listdir('../frames_of_video/')]
-    frames = frames[1:]  # remove dummy_file from the list
-    i = len(frames) - 1
+    command = ['python', 'modified_detect.py', '--source', '../frames/', '--weights', weights_file,
+               '--originalName', name_of_video, '--directory', '--device', '0',
+               '--classes', '0 14 15 16 17 18 19 20 21 22 23 77', '--nosave']
+
     os.chdir('../yolov5/')
-    # Processing frames in parallel mode
-    while len(frames) > 0:
-
-        if i % 100 == 0:
-            print(i, 'frames remaining')
-
-        for process in current_processes:
-            if process.poll() is not None:
-                current_processes.remove(process)
-            if len(current_processes) >= MAX_NUMBER_OF_PROCESSES:
-                time.sleep(1)  # wait for process to end
-
-        frameIndex = frames[i].replace('frame_', '').replace('.png', '')
-        frame_path = '../frames_of_video/' + frames[i]
-
-        p = subprocess.Popen(['python', 'modified_detect.py', '--source', frame_path, '--weights', WEIGHTS_FILE,
-                              '--idx', frameIndex, '--originalName', name_of_video, '--line-thickness', '1',
-                              '--hide-conf', '--hide-labels'
-                              # , '--nosave'
-                              ],
-                             stderr=subprocess.DEVNULL,
-                             stdout=subprocess.DEVNULL
-                             )
-        current_processes.append(p)
-        frames.pop()
-        i -= 1
-
+    subprocess.check_call(command, stdout=subprocess.DEVNULL)
     print('Finished processing')
 
-    if len(rows) == 0:
-        print('Finished')
-    else:
-        for row in rows:
-            print(row)
 
-
-def save_copy_for_test(fps, size):
-
-    db = sqlite3.connect('../db/cut.db')
-    if db is None:
-        return
-
-    sql = """SELECT * FROM frameInfo"""
-    frame_info = db.cursor().execute(sql)
-    rows = frame_info.fetchall()
-
-    print(len(rows))
-
-    os.chdir('../frames_of_video')
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    cv2.VideoWriter('test.mp4', fourcc, fps, size)
-    i = 0
-    for item in os.listdir():
-        if 'dummy_file' in item:
-            continue
-        sql = """SELECT * FROM frameInfo WHERE detections IS NOT NULL"""
-        frame_info = db.cursor().execute(sql)
-        rows = frame_info.fetchall()
+def post_process(path, size):
+    """"""
+    pass
 
 
 def move_to_trash(filename):

@@ -3,6 +3,6 @@ code/venv/
 code/.idea/
 code/__pycache__/
 weights/
-past_images/
-frames_of_video/*.png
 db/*.db
+frames/*.png
+code/utils_2.py

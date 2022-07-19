@@ -47,10 +47,10 @@ from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, time_sync
 
 
-def insert_data(filename, sql, idx, detections, coordinates = ''):
+def insert_data(filename, sql, idx, detections, coordinates, rotation=0):
+
     conn = sqlite3.connect('../db/' + filename + '.db')
-    print(conn)
-    data = (idx, detections, coordinates)
+    data = (int(idx), str(detections), str(coordinates), int(rotation), '')
     if conn is not None:
         cur = conn.cursor()
         cur.execute(sql, data)
@@ -59,13 +59,14 @@ def insert_data(filename, sql, idx, detections, coordinates = ''):
 
 @torch.no_grad()
 def run(
+        rotation=0,
         originalName='',
-        idx=0,
+        directory=False,
         weights=ROOT / 'yolov5s.pt',  # model.pt path(s)
         source=ROOT / 'data/images',  # file/dir/URL/glob, 0 for webcam
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
         imgsz=(640, 640),  # inference size (height, width)
-        conf_thres=0.25,  # confidence threshold
+        conf_thres=0.1,  # confidence threshold
         iou_thres=0.45,  # NMS IOU threshold
         max_det=1000,  # maximum detections per image
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
@@ -89,10 +90,33 @@ def run(
         dnn=False,  # use OpenCV DNN for ONNX inference
 ):
 
-    sql = 'INSERT INTO frameInfo(frameIndex, detections, coordinates)' \
-          'VALUES(?, ?, ?)'
+
+    classes = classes[0].split(' ')
+    classes = [int(x) for x in classes if x != '' and x != ' ']
+    print(type(classes[0]))
+    sql = 'INSERT INTO frameInfo(frameIndex, detections, coordinates, rotation, tag) VALUES(?, ?, ?, ?, ?)'
     detections = ''
     coordinates = ''
+    names_of_files = []
+    indexes = []
+    rotations = []
+    file_counter = 0
+
+    if directory:
+        for item in os.listdir(source):
+            if 'dummy_file' in item:
+                continue
+            file_counter += 1
+            names_of_files.append(item.replace('.png', ''))
+
+    if 'rotated_frames' not in source:
+        rotations = [0] * file_counter
+        indexes = list(range(file_counter))
+    else:
+        for item in names_of_files:
+            parts = item.split('_')
+            rotations.append(int(parts[2]))
+            indexes.append(int(parts[1]))
 
     source = str(source)
     save_img = not nosave and not source.endswith('.txt')  # save inference images
@@ -126,7 +150,13 @@ def run(
     # Run inference
     model.warmup(imgsz=(1 if pt else bs, 3, *imgsz))  # warmup
     seen, windows, dt = 0, [], [0.0, 0.0, 0.0]
+    aux_counter = 0
     for path, im, im0s, vid_cap, s in dataset:
+
+        idx = path.replace('.png', '').split('\\')[-1].split('_')[-2]
+        rotation = path.replace('.png', '').split('\\')[-1].split('_')[-1]
+        coordinates = ''
+        detections = ''
         t1 = time_sync()
         im = torch.from_numpy(im).to(device)
         im = im.half() if model.fp16 else im.float()  # uint8 to fp16/32
@@ -176,9 +206,7 @@ def run(
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
                     detections = detections + names[int(c)] + ', '
 
-                if detections.replace(', ', '') == '':
-                    detections = 'None'
-                print(detections, '-' * 100)
+                # print(detections, '-' * 100)
 
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
@@ -227,6 +255,9 @@ def run(
         # Print time (inference-only)
         LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
 
+        insert_data(originalName, sql, idx, detections, coordinates, rotation)
+        aux_counter += 1
+
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
     LOGGER.info(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, *imgsz)}' % t)
@@ -235,8 +266,6 @@ def run(
         LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
     if update:
         strip_optimizer(weights)  # update model (to fix SourceChangeWarning)
-
-    insert_data(originalName, sql, int(idx), detections, str(coordinates))
 
 
 def parse_opt():
@@ -254,7 +283,7 @@ def parse_opt():
     parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels')
     parser.add_argument('--save-crop', action='store_true', help='save cropped prediction boxes')
     parser.add_argument('--nosave', action='store_true', help='do not save images/videos')
-    parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
+    parser.add_argument('--classes', nargs='+', type=str, help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--visualize', action='store_true', help='visualize features')
@@ -267,8 +296,9 @@ def parse_opt():
     parser.add_argument('--hide-conf', default=False, action='store_true', help='hide confidences')
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
-    parser.add_argument('--idx', type=int, help='index of the frame to analyze')
     parser.add_argument('--originalName', type=str, help='filename')
+    parser.add_argument('--rotation', type=int, default=0, help='rotation of the frame')
+    parser.add_argument('--directory', action='store_true', help='true if the source is a directory')
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
     # print_args(vars(opt))
@@ -276,7 +306,7 @@ def parse_opt():
 
 
 def main(opt):
-    check_requirements(exclude=('tensorboard', 'thop'))
+    # check_requirements(exclude=('tensorboard', 'thop'))
     run(**vars(opt))
 
 
