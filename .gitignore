@@ -5,4 +5,5 @@ code/__pycache__/
 weights/
 db/*.db
 frames/*.png
+rotated_frames/*.png
 code/utils_2.py
