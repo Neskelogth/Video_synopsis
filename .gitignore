@@ -7,3 +7,4 @@ db/*.db
 frames/*.png
 rotated_frames/*.png
 code/utils_2.py
+rotated_frames_2/

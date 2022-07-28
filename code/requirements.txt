@@ -5,3 +5,4 @@ Send2Trash~=1.8.0
 futures3~=1.0.0
 numpy~=1.23.0
 ffmpeg-python~=0.2.0
+scikit-image~=0.19.3

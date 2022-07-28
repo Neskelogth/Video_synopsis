@@ -6,8 +6,8 @@ import sys
 import shutil
 import sqlite3
 from sqlite3 import Error
-from math import sqrt
-# import time
+from collections import Counter
+from math import sqrt, ceil
 
 # external modules imports
 import wget
@@ -17,6 +17,7 @@ from send2trash import send2trash
 # import concurrent.futures
 import ffmpeg
 import numpy as np
+from skimage.metrics import structural_similarity
 
 
 def check_files(file_path):
@@ -164,6 +165,26 @@ def get_video_info(filename):
     return frame_count, fps, duration, size
 
 
+def remove_all_frames():
+    """
+        Deletes all the frames from the folders used in previous runs
+        :return: Void
+    """
+    os.chdir('../frames')
+    for file in os.listdir('.'):
+        if 'dummy_file' not in file:
+            os.remove(file)
+    os.chdir('../rotated_frames')
+    for file in os.listdir('.'):
+        if 'dummy_file' not in file:
+            os.remove(file)
+    os.chdir('../utils')
+    for file in os.listdir('.'):
+        if '.png' in file:
+            os.remove(file)
+    os.chdir('../code')
+
+
 def remove_past_runs():
     """
         Removes folder of past runs
@@ -247,22 +268,6 @@ def rotate_frames():
     print('Rotated frames')
 
 
-def delete_frames():
-    """
-        Deletes all the files from the frame folder
-        :return: Void
-    """
-    os.chdir('../frames')
-    for item in os.listdir('.'):
-        if 'dummy_file' not in item:
-            os.remove(item)
-    os.chdir('../rotated_frames')
-    for item in os.listdir('.'):
-        if 'dummy_file' not in item:
-            os.remove(item)
-    os.chdir('../code')
-
-
 def process_video(filename, small, gpu):
     """
         Analyzes all frames with YOLO
@@ -272,7 +277,10 @@ def process_video(filename, small, gpu):
         :return: Void
     """
 
-    print('Processing video... ')
+    print('Deleting frames of past runs...', end='')
+    # remove_all_frames()
+    print('Deleted')
+
     weights_file = '../weights/yolov5x6.pt'
     if small:
         weights_file = '../weights/yolov5s6.pt'
@@ -312,45 +320,74 @@ def process_video(filename, small, gpu):
         command.append('--device')
         command.append('0')
 
+    print('Processing video... ', end='')
     os.chdir('../yolov5/')
     subprocess.check_call(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # delete_frames()
     print('Finished processing')
 
 
-def transform_coordinates(result, rot, size):
+def filter_out_results(results):
     """
-        Transforms the coordinates based on the rotation on the frame
-        :param result: coordinates of the frame as stored in the database
-        :param rot: rotation of the frame
-        :param size: image size
-        :return: transformed coordinates
+        Filters the results removing detections where YOLO found something in the original and the rotated frames
+        :param results: results of the queried database
+        :return: Filtered results
     """
 
-    result = result.replace(', device=\'cuda:0\')', '').replace('tensor(', '').replace('.', '') \
-        .replace(',', '').replace('[', '').replace(']', '').split(' ')
-    result = np.array([int(x) for x in result if x != '']).reshape((-1, 4))
+    to_delete = []
 
-    width = result[2] - result[0]
-    height = result[3] - result[1]
+    for i in range(len(results) - 1, 1, -1):
+        if results[3] != 0:
+            if results[i - 1][0] == results[i][0]:
+                to_delete.append(i)
 
-    if rot == 180:
-        for i in range(len(result)):
-            tmp_array = np.array([size[0] - result[i][0] - width, size[1] - result[i][1],
-                                  size[0] - result[i][2], size[1] - height + result[i][3]])
-            result[i] = tmp_array
-    elif rot == 90:
-        for i in range(len(result)):
-            point = result[i]
-            tmp_array = np.array([point[1], size[1] - point[0] - width, point[3], size[1] - point[2] + width])
-            result[i] = tmp_array
-    elif rot == 270:
-        for i in range(len(result)):
-            point = result[i]
-            tmp_array = np.array([size[0] - height, point[0], size[0] - point[3] + height, point[2]])
-            result[i] = tmp_array
+    for item in to_delete:
+        results.pop(item)
 
-    return result
+    return results
+
+
+def transform_coordinates(results, size):
+    """
+
+        :param results:
+        :param size:
+        :return:
+    """
+    new_results = []
+    height = size[0]
+    width = size[1]
+
+    for result in results:
+        current_rotation = result[3]
+        coordinates = result[2].replace('tensor(', '').replace(', device=\'cuda:0\')', '').replace('.', '') \
+            .replace(',', '').replace('[', '').replace(']', '').replace('\n', '').split(' ')
+        coordinates = np.array([int(x) for x in coordinates if x != '']).reshape(-1, 4)
+        result[2] = coordinates
+        if current_rotation == 0:
+            new_results.append(result)
+            continue
+        transformed_coordinates = []
+
+        if current_rotation == 180:
+            for coordinate in coordinates:
+                aux_array = [width - coordinate[2], height - coordinate[3],
+                             width - coordinate[0], height - coordinate[1]]
+                transformed_coordinates.append(aux_array)
+        if current_rotation == 90:
+            for coordinate in coordinates:
+                aux_array = [width - coordinate[3], coordinate[0],
+                             width - coordinate[1], coordinate[2]]
+                transformed_coordinates.append(aux_array)
+        if current_rotation == 270:
+            for coordinate in coordinates:
+                aux_array = [coordinate[1], height - coordinate[2],
+                             coordinate[3], height - coordinate[0]]
+                transformed_coordinates.append(aux_array)
+
+        aux_result = [result[0], result[1], np.array(transformed_coordinates), current_rotation, '']
+        new_results.append(aux_result)
+
+    return new_results
 
 
 def distance(arr1, arr2):
@@ -360,17 +397,12 @@ def distance(arr1, arr2):
         :param arr2: Points of the second box
         :return: float
     """
+    top_x_diff = arr2[0] - arr1[0]
+    top_y_diff = arr2[1] - arr1[1]
+    bot_x_diff = arr2[2] - arr1[2]
+    bot_y_diff = arr2[3] - arr1[3]
 
-    p1 = [arr1[0], arr1[1]]
-    p2 = [arr2[0], arr2[1]]
-    p3 = [arr1[2], arr1[3]]
-    p4 = [arr2[2], arr2[3]]
-    x_diff1 = abs(p1[0] - p2[0])
-    x_diff2 = abs(p3[0] - p4[0])
-    y_diff1 = abs(p1[1] - p2[1])
-    y_diff2 = abs(p3[1] - p4[1])
-
-    return (sqrt(x_diff1 ** 2 + y_diff1 ** 2) + sqrt(x_diff2 ** 2 + y_diff2 ** 2)) / 2
+    return (sqrt(top_x_diff ** 2 + top_y_diff ** 2) + sqrt(bot_x_diff ** 2 + bot_y_diff ** 2)) / 2
 
 
 def keep_only_nearest_boxes(first_array, second_array):
@@ -381,92 +413,166 @@ def keep_only_nearest_boxes(first_array, second_array):
         :return: 2 arrays
     """
 
-    swapped = False
-    similarities = []
+    distances = []
 
     if len(first_array) > len(second_array):
-        swapped = True
         first_array, second_array = second_array, first_array
 
     for first_item in first_array:
-        aux_similarity = []
+        aux_sim = []
         for second_item in second_array:
-            aux_similarity.append(distance(first_item, second_item))
-        similarities.append(aux_similarity)
+            aux_sim.append(distance(first_item, second_item))
+        distances.append(aux_sim)
 
-    mins = []
-    for item in similarities:
-        aux_arr = item
-        max_val = np.argmin(aux_arr)
-        while aux_arr[max_val] in mins:
-            aux_arr = np.delete(aux_arr, max_val)
-            max_val = np.argmin(aux_arr)
-        mins.append(aux_arr[max_val])
+    indexes_to_keep = []
+    for item in distances:
+        aux_val = item
+        min_idx = np.argmin(aux_val)
+        while min_idx in indexes_to_keep:
+            aux_val.pop(min_idx)
+            min_idx = np.argmin(aux_val)
+        indexes_to_keep.append(min_idx)
 
-    indexes = []
-    for i in range(len(mins)):
-        indexes.append(similarities[i].index(mins[i]))
-    second_return = [second_array[val] for val in indexes]
+    second_array = [second_array[i] for i in indexes_to_keep]
+
+    return second_array
+
+
+def discard_probably_non_interesting_boxes(results, idx, farme_interval):
+    """
+
+        :param results:
+        :param idx:
+        :param farme_interval:
+        :return:
+    """
+
+    for i in range(farme_interval):
+        current_result = results[idx + i][2]
+        prev_result = results[idx - 1 + i][2]
+        if len(prev_result) < len(current_result):
+            results[idx + i][2] = keep_only_nearest_boxes(current_result, prev_result)
+    return results[idx]
+
+
+def filter_boxes(results):
+    """
+
+        :param results:
+        :return:
+    """
+
+    frame_interval = 7
+
+    for i in range(len(results)):
+        if len(results[i][2]) == len(results[i - 1][2]):
+            continue
+
+        next_coordinates_lengths = []
+        for j in range(frame_interval):
+            if i + j < len(results):
+                next_coordinates_lengths.append(len(results[i + j][2]))
+
+        c = Counter(next_coordinates_lengths)
+        if c[len(results[i - 1][2])] > c[len(results[i][2])] \
+                and (c[len(results[i][2])] + c[len(results[i - 1][2])] > frame_interval / 2):
+            results[i] = discard_probably_non_interesting_boxes(results, i, frame_interval)
+
+    # for item in results:
+    #     print(item)
+
+    return results
+
+
+def filter_and_sort(prev_coord, coord):
+    """
+
+        :param prev_coord:
+        :param coord:
+        :return:
+    """
+
+    swapped = False
+    distances = []
+
+    if len(prev_coord) <= len(coord):
+        first_array = np.array(prev_coord)
+        second_array = np.array(coord)
+    else:
+        swapped = True
+        first_array = np.array(coord)
+        second_array = np.array(prev_coord)
+
+    for item in first_array:
+        aux_sim = []
+        for second_item in second_array:
+            aux_sim.append(distance(item, second_item))
+        distances.append(aux_sim)
+
+    keeping_indexes = []
+
+    for item in distances:
+        min_idx = np.argmin(item)
+        while min_idx in keeping_indexes:
+            item.pop(min_idx)
+            min_idx = np.argmin(item)
+        keeping_indexes.append(min_idx)
+
+    second_array = [second_array[i] for i in keeping_indexes]
 
     if swapped:
-        return second_return, first_array
+        return second_array, first_array
 
-    return first_array, second_return
+    return first_array, second_array
 
 
-def interpolate_coordinates(filename, indexes, skipping_indexes, results):
+def interpolate_and_save_coordinates(filename, skipping_indexes, results):
     """
         Interpolates the coordinates of bounding boxes on frames in which objects were probably not detected due to low
             confidence in the prediction
-        :param indexes: indexes of the frames in which something was found
+        :param results: results of the processing step
+        :param filename: name of the video being processed
         :param skipping_indexes: indexes of the frames that skipped
         :return: Void
     """
+    # Interpolation of coordinates
+    for item in skipping_indexes:
+        diff = results[item][0] - results[item - 1][0]
+        idx = results[item - 1][0]
+        if len(results[item][1]) < len(results[item - 1][1]):
+            detections = results[item][1]
+        else:
+            detections = results[item][1]
+        coordinates = results[item][2]
+        prev_coordinates = results[item - 1][2]
+        first_array, second_array = filter_and_sort(prev_coordinates, coordinates)
 
-    filename = filename.split('/')[-1][:-4]
-    difference_threshold = 100
-    for i in range(len(skipping_indexes)):
-        idx = skipping_indexes[i]
-        prev_idx = skipping_indexes[i] - 1
-        diff = indexes[idx] - indexes[prev_idx]
-        sorted_couples_1, sorted_couples_2 = keep_only_nearest_boxes(results[idx][2],
-                                                                     results[prev_idx][2])
-        coordinates = []
+        for i in range(diff - 1):
+            aux_result = []
+            for j in range(len(first_array)):
+                top_x_step = (second_array[j][0] - first_array[j][0]) / diff
+                top_y_step = (second_array[j][1] - first_array[j][1]) / diff
+                bot_x_step = (second_array[j][2] - first_array[j][2]) / diff
+                bot_y_step = (second_array[j][3] - first_array[j][3]) / diff
+                aux_coords = [ceil(first_array[j][0] + top_x_step * (i + 1)),
+                              ceil(first_array[j][1] + top_y_step * (i + 1)),
+                              ceil(first_array[j][2] + bot_x_step * (i + 1)),
+                              ceil(first_array[j][3] + bot_y_step * (i + 1))]
+                aux_result.append(np.array(aux_coords))
+            results.append([idx + i + 1, detections, aux_result, 0, ''])
 
-        for k in range(diff - 1):
-            aux = []
-            for j in range(len(sorted_couples_1)):
-                top_left_x_difference = sorted_couples_2[j][0] - sorted_couples_1[j][0]
-                top_left_y_difference = sorted_couples_2[j][1] - sorted_couples_1[j][1]
-                bottom_right_x_difference = sorted_couples_2[j][2] - sorted_couples_1[j][2]
-                bottom_right_y_difference = sorted_couples_2[j][3] - sorted_couples_1[j][3]
-                if top_left_x_difference > difference_threshold or top_left_y_difference > difference_threshold \
-                        or bottom_right_x_difference > difference_threshold \
-                        or bottom_right_y_difference > difference_threshold:
-                    continue
-                top_x_step = top_left_x_difference / diff
-                top_y_step = top_left_y_difference / diff
-                bottom_x_step = bottom_right_x_difference / diff
-                bottom_y_step = bottom_right_y_difference / diff
-                aux.append([int(sorted_couples_1[j][0] + top_x_step * (k + 1)),
-                            int(sorted_couples_1[j][1] + top_y_step * (k + 1)),
-                            int(sorted_couples_1[j][2] + bottom_x_step * (k + 1)),
-                            int(sorted_couples_1[j][3] + bottom_y_step * (k + 1))])
-            coordinates.append(aux)
-
-        for w in range(diff - 1):
-            index = indexes[idx] - diff + 1 + w
-            sql = """UPDATE frameInfo 
-                     SET frameIndex = ?, detections = ?, coordinates = ?, rotation = ?, tag = ?
-                     WHERE frameIndex = ? AND rotation = ?"""
-            data = (index, 'person, ' * len(coordinates[w]), str(coordinates[w]), 0, '', index, 0)
-            path = '../db/' + filename + '.db'
-            conn = sqlite3.connect(path)
-            if conn is None:
-                print('Connection to database error')
-                exit(3)
-            conn.cursor().execute(sql, data)
-            conn.commit()
+    # Saving results
+    sql = """UPDATE frameInfo
+             SET frameIndex = ?, detections = ?, coordinates = ?, rotation = ?, tag = ?
+             WHERE frameIndex = ? AND rotation = ?"""
+    conn = sqlite3.connect('../db/' + filename + '.db')
+    if conn is None:
+        print('Error in connecting to the database')
+        exit(3)
+    for item in results:
+        data = (item[0], item[1], str(item[2]), 0, '', item[0], 0)
+        conn.cursor().execute(sql, data)
+        conn.commit()
 
 
 def post_process(filename, size):
@@ -481,41 +587,72 @@ def post_process(filename, size):
     name_of_video = filename.split('/')[-1][:-4]
     conn = sqlite3.connect('../db/' + name_of_video + '.db')
 
-    # Transform coordinates to get real coordinates
-    sql = """SELECT * FROM frameInfo WHERE detections <> '' ORDER BY frameIndex"""
+    sql = """SELECT * 
+             FROM frameInfo 
+             WHERE detections <> '' 
+             ORDER BY frameIndex"""
+
     if conn is None:
         print('Error in connection to DB')
         exit(2)
+
+    # Remove results where YOLO found something in more than one possible rotation
     results = conn.cursor().execute(sql).fetchall()
     results = [list(item) for item in results]
-    new_results = []
+    results = filter_out_results(results)
+    # transforming coordinates of rotated frames
+    results = transform_coordinates(results, size)
+    results = filter_boxes(results)
     indexes = [item[0] for item in results]
-
-    print('Transforming coordinates of rotated frames... ', end='')
-    for result in results:
-        if result[3] != 0:
-            result[2] = transform_coordinates(result[2], result[3], size)
-        else:
-            result[2] = result[2].replace(', device=\'cuda:0\')', '').replace('tensor(', '').replace('.', '') \
-                .replace(',', '').replace('[', '').replace(']', '').split(' ')
-            result[2] = np.array([int(x) for x in result[2] if x != '']).reshape((-1, 4))
-
-        new_results.append(result)
-
-    print('Transformed all coordinates')
-    # Using the informations to understand if there are no detections for less then a few frames and infer the position
-    # of the eventual missed bounding box
-
-    print('Interpolating bounding boxes of probably skipped frames')
     skipping_indexes = []
+
     for i in range(1, len(indexes)):
         if 1 < indexes[i] - indexes[i - 1] < frame_interval:
             skipping_indexes.append(i)
-    interpolate_coordinates(filename, indexes, skipping_indexes, new_results)
+
+    interpolate_and_save_coordinates(name_of_video, skipping_indexes, results)
+    for item in results:
+        print(item)
 
 
-def find_background():
-    return 0
+def find_background(filename):
+    """
+
+        :return: Void
+    """
+
+    sql = """SELECT frameIndex 
+             FROM frameInfo 
+             WHERE detections = '' AND rotation = 0
+             ORDER BY frameIndex"""
+
+    name_of_video = filename.split('/')[-1][:-4]
+    conn = sqlite3.connect('../db/' + name_of_video + '.db')
+    if conn is None:
+        print('Error in database connection')
+        exit(3)
+    print('Searching for background frame...', end='')
+    results = conn.cursor().execute(sql).fetchall()
+    indexes = [item[0] for item in results]
+
+    names = ['frame_' + str(idx) + '_0.png' for idx in indexes]
+    os.chdir('../rotated_frames')
+    ssims = []
+
+    for i in range(1, len(names)):
+        image_1 = cv2.imread(names[i - 1])
+        image_2 = cv2.imread(names[i])
+        image_1 = cv2.cvtColor(image_1, cv2.COLOR_BGR2GRAY)
+        image_2 = cv2.cvtColor(image_2, cv2.COLOR_BGR2GRAY)
+        (score, diff) = structural_similarity(image_1, image_2, full=True)
+        ssims.append(score)
+
+    max_sim = np.argmax(ssims)
+    name = names[max_sim + 1]
+    shutil.copy(name, '../utils/' + name)
+
+    os.chdir('../code')
+    print('Finished searching')
 
 
 def move_to_trash(filename):

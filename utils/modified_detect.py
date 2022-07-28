@@ -90,10 +90,10 @@ def run(
         dnn=False,  # use OpenCV DNN for ONNX inference
 ):
 
-
-    classes = classes[0].split(' ')
-    classes = [int(x) for x in classes if x != '' and x != ' ']
-    print(type(classes[0]))
+    
+    if classes:
+        classes = classes[0].split(' ')
+        classes = [int(x) for x in classes if x != '' and x != ' ']
     sql = 'INSERT INTO frameInfo(frameIndex, detections, coordinates, rotation, tag) VALUES(?, ?, ?, ?, ?)'
     detections = ''
     coordinates = ''
