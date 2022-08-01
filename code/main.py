@@ -6,7 +6,7 @@ import time
 start = time.time()
 
 # initial declarations of constants
-data_path = '../data/08/cut_more_2.mp4'
+data_path = '../data/08/cut_more.mp4'
 gpu = True
 delete_db = False
 delete_frames = False
@@ -53,13 +53,13 @@ print(f'fps = {fps}, size = {size}')
 
 # if the video has not been processed go through entire pipeline
 if not already_processed_file:
-    process_video(file_path, gpu, output_process)
+    # process_video(file_path, gpu, output_process)
     # post_process(file_path, size)
     # find_background(file_path)
     # associate_tag(file_path)
     pass
 
-# save_video(file_path, fps, size)
+save_video(file_path, fps, size)
 
 if delete_db:
     move_to_trash(file_path)
@@ -68,6 +68,5 @@ if delete_frames:
     remove_all_frames()
 
 time = time.time() - start
-print(f'Finished in {time} seconds, which are {time / 60} minutes')
-
+print(f'Finished in {time / 60} minutes')
 

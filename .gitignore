@@ -8,3 +8,4 @@ db/*.db-journal
 frames/*.png
 rotated_frames/*.png
 utils/*.png
+output/*.mp4

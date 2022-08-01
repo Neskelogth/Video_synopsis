@@ -460,7 +460,7 @@ def handle_outliers(results, frame_interval):
 
     coordinates = [item[2] for item in results]
     indexes = [item[0] for item in results]
-    diff_threshold = 150
+    diff_threshold = 50
     to_delete = []
 
     prev_coords = coordinates[0]
@@ -876,12 +876,6 @@ def associate_tag(filename):
                 aux_string += 'tag_' + str(max_tag + j + 1) + ' '
             tags.append([aux_string])
 
-    counter = 0
-    # for item in tags:
-    #     print(indexes[counter])
-    #     counter += 1
-    #     print(item)
-
     sql = """UPDATE frameInfo SET tag = ?, coordinates = ? WHERE frameIndex = ? AND rotation = 0"""
 
     for i in tqdm(range(len(indexes))):
@@ -891,6 +885,281 @@ def associate_tag(filename):
     print('Finished')
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def proceed(counters, fpt):
+    """"""
+    lengths = []
+    for i in range(len(fpt)):
+        lengths.append(counters[i] == len(fpt[i]))
+
+    c = Counter(lengths)
+    if c[False] > 0:
+        return True
+
+    return False
+
+
+def overlap(box1, box2):
+
+    overlap_on_x = min(box1[2], box2[2]) - max(box1[0], box2[0])
+    overlap_on_y = min(box1[3], box2[3]) - max(box1[1], box2[1])
+
+    if overlap_on_y < 0 or overlap_on_x < 0:
+        return 0
+
+    return overlap_on_y * overlap_on_x
+
+
+def compute_overlap(box, array):
+
+    box_area = (box[2] - box[0]) * (box[3] - box[1])
+    tolerance = 0.1
+
+    if array != []:
+        for item in array:
+            item_area = (item[2] - item[0]) * (item[3] - item[1])
+            min_area = min(box_area, item_area)
+            over = overlap(box, item) / min_area
+            print(over)
+            if over > tolerance:
+                return True
+
+    return False
+
+
+def build_image(bg, boxes, counters, changed, starts):
+    """"""
+
+    skipped = 0
+    for i in range(len(counters)):
+        if changed[i]:
+            frame = 0
+            index = starts[i] + counters[i] - 1
+            correct_result = []
+            for file in os.listdir('../rotated_frames'):
+                if file == 'frame_' + str(index) + '_0.png':
+                    frame = cv2.imread('../rotated_frames/' + file)
+            bg[boxes[i - skipped][1]:boxes[i - skipped][1]+boxes[i - skipped][3],
+               boxes[i - skipped][0]:boxes[i - skipped][0]+boxes[i - skipped][2]] = \
+                frame[boxes[i - skipped][1]:boxes[i - skipped][1]+boxes[i - skipped][3],
+                      boxes[i - skipped][0]:boxes[i - skipped][0]+boxes[i - skipped][2]]
+        else:
+            skipped += 1
+
+    return bg
+
+
 def save_video(filename, fps, size):
     """
 
@@ -898,45 +1167,113 @@ def save_video(filename, fps, size):
         :return:
     """
     print('Creating video output...', end='')
+    print('')  #########################################################################################################
     name_of_video = filename.split('/')[-1][:-4]
-    sql = """SELECT tag, COUNT (*)
+    sql = """SELECT DISTINCT tag
              FROM frameInfo
              WHERE detections <> ''
-             GROUP BY tag
-             ORDER BY tag"""
-
-    sql_2 = """SELECT *
-               FROM frameInfo
-               WHERE detections <> ''
-               ORDER BY frameIndeex"""
+             ORDER BY frameIndex"""
 
     conn = sqlite3.connect('../db/' + name_of_video + '.db')
     if conn is None:
         print('Error while connecting to the database')
         exit(3)
+
     results = conn.cursor().execute(sql).fetchall()
     results = [item for item in results]
-    print(results[0])
-    counts = [item[1] for item in results]
-    tags = [item[0] for item in results]
-    results_2 = conn.cursor().execute(sql_2).fetchall()
-    resulst_2 = [list(item) for item in results_2]
-    max_count = counts[np.argmax(counts)]
+    tags = [item[0].replace('[', '').replace(']', '').replace('\'', '').replace(',', '').split(' ') for item in results]
+    list_of_tags = []
 
+    for i in range(len(tags)):
+        tags[i] = [item for item in tags[i] if item != '']
+        for item in tags[i]:
+            list_of_tags.append(item)
+
+    print(list_of_tags)
+
+    tag_set_manual = []
+
+    for item in list_of_tags:
+        if item not in tag_set_manual:
+            tag_set_manual.append(item)
+
+    sql = """SELECT *
+             FROM frameInfo
+             WHERE tag <> ''
+             ORDER BY frameIndex"""
+
+    results = conn.cursor().execute(sql).fetchall()
+    results = [list(item) for item in results]
+
+    frames_per_tag = []
+    start_index_per_tag = []
+
+    sql = """SELECT * 
+             FROM frameInfo
+             WHERE tag <> ''
+             ORDER BY frameIndex"""
+
+    results = conn.cursor().execute(sql).fetchall()
+    results = [list(item) for item in results]
+
+    for tag in tag_set_manual:
+        aux_res = results
+        lowest = results[len(results) - 1][0]
+        for item in aux_res:
+            if tag in item[4] and item[0] < lowest:
+                lowest = item[0]
+        start_index_per_tag.append(lowest)
+
+    for tag in tag_set_manual:
+        frames = []
+        for item in results:
+            if tag in item[4]:
+                frames.append(item[2])
+        frames_per_tag.append(frames)
+
+    number_of_tags = len(tag_set_manual)
     os.chdir('../utils')
+    background = 0
 
     for file in os.listdir('.'):
-        print(file)
+        if name_of_video in file:
+            background = cv2.imread(file)
+
+    if type(background) is not np.ndarray:
+        print('Something went wrong while reading the background')
+        exit(4)
 
     os.chdir('../output')
 
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     writer = cv2.VideoWriter('' + name_of_video + '.mp4', fourcc, fps, (size[1], size[0]))
 
-    for i in tqdm(range(max_count)):
+    began = [False] * number_of_tags
+    counters = [0] * number_of_tags
+    counter = 0
+    while proceed(counters, frames_per_tag):
+        present_boxes = []
+        changed = [False] * number_of_tags
+        for i in range(number_of_tags):
+            if counters[i] < len(frames_per_tag[i]):
+                examined_box = frames_per_tag[i][counters[i]]
+                examined_box = examined_box.replace('[', '').replace(']', '').split(' ')
+                examined_box = [int(item) for item in examined_box if item != '']
+                if not began[i] and not compute_overlap(examined_box, present_boxes):
+                    present_boxes.append(examined_box)
+                    began[i] = True
+                    counters[i] += 1
+                    changed[i] = True
+                    counter += 1
+                elif began[i]:
+                    present_boxes.append(examined_box)
+                    counters[i] += 1
+                    changed[i] = True
+                    counter += 1
 
-        # writer.write(frame)
-        pass
+        new_frame = build_image(background.copy(), present_boxes, counters, changed, start_index_per_tag)
+        writer.write(new_frame)
+
     writer.release()
     os.chdir('../code')
     print('Finished')
