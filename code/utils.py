@@ -17,7 +17,8 @@ from send2trash import send2trash
 # import concurrent.futures
 import ffmpeg
 import numpy as np
-from skimage.metrics import structural_similarity
+from skimage.metrics import structural_similarity as ssim
+from tqdm import tqdm
 
 
 def check_files(file_path):
@@ -68,7 +69,7 @@ def check_if_db_exists(filename):
     # return False
 
 
-def get_necessary_files(small, gpu):
+def get_necessary_files(gpu):
     """
         Gets all the necessary files for the script to work
         :param gpu: True if the user wants to use the GPU for YOLO
@@ -76,8 +77,7 @@ def get_necessary_files(small, gpu):
         :return: Void
     """
 
-    small_link = 'https://github.com/ultralytics/yolov5/releases/download/v6.1/yolov5s6.pt'
-    xl_link = 'https://github.com/ultralytics/yolov5/releases/download/v6.1/yolov5x6.pt'
+    link = 'https://github.com/ultralytics/yolov5/releases/download/v6.1/yolov5s6.pt'
 
     os.chdir('..')
     if not os.path.exists('yolov5'):
@@ -88,9 +88,6 @@ def get_necessary_files(small, gpu):
 
     if not os.path.exists('rotated_frames'):
         os.mkdir('rotated_frames')
-
-    # if not os.path.exists('frames/dummy_file.txt'):
-    #     os.mknod('frames/dummy_file.txt')
 
     if not os.path.exists('weights'):
         os.mkdir('weights')
@@ -136,10 +133,8 @@ def get_necessary_files(small, gpu):
     os.chdir('../weights')
 
     if len(os.listdir('.')) == 0:
-        if small and not os.path.exists('yolov5s6.pt'):
-            wget.download(small_link)
-        elif not small and not os.path.exists('yolov5x6.pt'):
-            wget.download(xl_link)
+        if not os.path.exists('yolov5s6.pt'):
+            wget.download(link)
     print('Got YOLOv5 weights')
 
     os.chdir('..')
@@ -149,20 +144,18 @@ def get_necessary_files(small, gpu):
 
 def get_video_info(filename):
     """
-        Returns the frame count, the fps and the duration of the video
+        Returns the fps and the size of the video
         :param filename: path of the file to analyze
-        :return: frame_count, fps, duration and image size
+        :return: fps and image size
     """
 
     video = cv2.VideoCapture(filename)
-    frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = video.get(cv2.CAP_PROP_FPS)
-    duration = frame_count / fps
     success, frame = video.read()
     size = (frame.shape[0], frame.shape[1])
     video.release()
 
-    return frame_count, fps, duration, size
+    return fps, size
 
 
 def remove_all_frames():
@@ -252,38 +245,40 @@ def rotate_frames():
         Rotates all the frames by 90, 180 and 270 degrees
         :return: Void
     """
-    print('Rotating frames... ', end='')
+    print('Rotating frames... ')
     os.chdir('../frames')
-    for file in os.listdir('.'):
-        if 'dummy_file' not in file:
-            image = cv2.imread(file)
-            cv2.imwrite('../rotated_frames/' + file[:-5] + '90.png', cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE))
-            cv2.imwrite('../rotated_frames/' + file[:-5] + '180.png', cv2.rotate(image, cv2.ROTATE_180))
-            cv2.imwrite('../rotated_frames/' + file[:-5] + '270.png', cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE))
+    list_of_files = os.listdir('.')
+    for i in tqdm(range(len(list_of_files))):
+        if 'dummy_file' not in list_of_files[i]:
+            image = cv2.imread(list_of_files[i])
+            cv2.imwrite('../rotated_frames/' + list_of_files[i][:-5] + '90.png',
+                        cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE))
+            cv2.imwrite('../rotated_frames/' + list_of_files[i][:-5] + '180.png',
+                        cv2.rotate(image, cv2.ROTATE_180))
+            cv2.imwrite('../rotated_frames/' + list_of_files[i][:-5] + '270.png',
+                        cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE))
 
-    for file in os.listdir('.'):
-        if 'dummy_file' not in file:
-            shutil.move(file, '../rotated_frames/' + file)
+    for i in tqdm(range(len(list_of_files))):
+        if 'dummy_file' not in list_of_files[i]:
+            shutil.move(list_of_files[i], '../rotated_frames/' + list_of_files[i])
     os.chdir('../code')
     print('Rotated frames')
 
 
-def process_video(filename, small, gpu):
+def process_video(filename, gpu, out):
     """
         Analyzes all frames with YOLO
+        :param out:
         :param gpu: True if the user wants to use the GPU
         :param filename: path of the file to use
-        :param small: True if the user wants to use the small version of YOLO
         :return: Void
     """
 
     print('Deleting frames of past runs...', end='')
-    # remove_all_frames()
+    remove_all_frames()
     print('Deleted')
 
-    weights_file = '../weights/yolov5x6.pt'
-    if small:
-        weights_file = '../weights/yolov5s6.pt'
+    weights_file = '../weights/yolov5s6.pt'
 
     name_of_video = filename.split('/')[-1][:-4]
 
@@ -313,20 +308,66 @@ def process_video(filename, small, gpu):
 
     command = ['python', 'modified_detect.py', '--source', '../rotated_frames/', '--weights', weights_file,
                '--originalName', name_of_video, '--directory',
-               '--classes', '0 14 15 16 17 18 19 20 21 22 23 77',
-               '--conf-thres', '0.1'  # , '--nosave'
+               '--classes', '0', '--conf-thres', '0.1'  # , '--nosave'
                ]
     if gpu:
         command.append('--device')
         command.append('0')
 
-    print('Processing video... ', end='')
+    print('Processing video. This operation may take some time, please wait... ', end='')
     os.chdir('../yolov5/')
-    subprocess.check_call(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if out:
+        subprocess.check_call(command)
+    else:
+        subprocess.check_call(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+
     print('Finished processing')
 
 
-def filter_out_results(results):
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def filter_out_repeted_indexes(results):
     """
         Filters the results removing detections where YOLO found something in the original and the rotated frames
         :param results: results of the queried database
@@ -337,8 +378,10 @@ def filter_out_results(results):
 
     for i in range(len(results) - 1, 1, -1):
         if results[3] != 0:
-            if results[i - 1][0] == results[i][0]:
+            if results[i - 1][0] == results[i][0] and len(results[i][2]) <= len(results[i - 1][2]):
                 to_delete.append(i)
+            elif results[i - 1][0] == results[i][0] and len(results[i][2]) > len(results[i - 1][2]):
+                to_delete.append(i - 1)
 
     for item in to_delete:
         results.pop(item)
@@ -360,7 +403,8 @@ def transform_coordinates(results, size):
     for result in results:
         current_rotation = result[3]
         coordinates = result[2].replace('tensor(', '').replace(', device=\'cuda:0\')', '').replace('.', '') \
-            .replace(',', '').replace('[', '').replace(']', '').replace('\n', '').split(' ')
+            .replace(',', '').replace('[', '').replace(']', '').replace('\n', '').replace('array(', '') \
+            .replace(')', '').split(' ')
         coordinates = np.array([int(x) for x in coordinates if x != '']).reshape(-1, 4)
         result[2] = coordinates
         if current_rotation == 0:
@@ -405,6 +449,54 @@ def distance(arr1, arr2):
     return (sqrt(top_x_diff ** 2 + top_y_diff ** 2) + sqrt(bot_x_diff ** 2 + bot_y_diff ** 2)) / 2
 
 
+def handle_outliers(results, frame_interval):
+
+    """
+
+        :param frame_interval:
+        :param results:
+        :return:
+    """
+
+    coordinates = [item[2] for item in results]
+    indexes = [item[0] for item in results]
+    diff_threshold = 150
+    to_delete = []
+
+    prev_coords = coordinates[0]
+    print('Examining frames')
+    for i in tqdm(range(1, len(results))):
+        all_dists = []
+        for j in range(len(prev_coords)):
+            dists = []
+            for k in range(len(coordinates[i])):
+                dists.append(distance(prev_coords[j], coordinates[i][k]))
+            all_dists.append(dists)
+
+        outlier = False
+        truth = []
+        for item in all_dists:
+            if all(inner_item > diff_threshold for inner_item in item) \
+                    and (indexes[i] - indexes[i - 1]) < frame_interval:
+                truth.append(True)
+            else:
+                truth.append(False)
+
+        if all(truth):
+            outlier = True
+            to_delete.append(results[i][0])
+
+        if not outlier:
+            prev_coords = coordinates[i]
+
+    new_results = []
+    for i in tqdm(range(len(results))):
+        if results[i][0] not in to_delete:
+            new_results.append(results[i])
+
+    return new_results
+
+
 def keep_only_nearest_boxes(first_array, second_array):
     """
         Returns 2 arrays of the same length, with the corresponding boxes in the same positions
@@ -414,9 +506,7 @@ def keep_only_nearest_boxes(first_array, second_array):
     """
 
     distances = []
-
-    if len(first_array) > len(second_array):
-        first_array, second_array = second_array, first_array
+    first_array, second_array = second_array, first_array
 
     for first_item in first_array:
         aux_sim = []
@@ -426,9 +516,9 @@ def keep_only_nearest_boxes(first_array, second_array):
 
     indexes_to_keep = []
     for item in distances:
-        aux_val = item
+        aux_val = item.copy()
         min_idx = np.argmin(aux_val)
-        while min_idx in indexes_to_keep:
+        while item.index(aux_val[min_idx]) in indexes_to_keep:
             aux_val.pop(min_idx)
             min_idx = np.argmin(aux_val)
         indexes_to_keep.append(min_idx)
@@ -438,16 +528,16 @@ def keep_only_nearest_boxes(first_array, second_array):
     return second_array
 
 
-def discard_probably_non_interesting_boxes(results, idx, farme_interval):
+def discard_probably_non_interesting_boxes(results, idx, frame_interval):
     """
 
         :param results:
         :param idx:
-        :param farme_interval:
+        :param frame_interval:
         :return:
     """
 
-    for i in range(farme_interval):
+    for i in range(frame_interval):
         current_result = results[idx + i][2]
         prev_result = results[idx - 1 + i][2]
         if len(prev_result) < len(current_result):
@@ -461,25 +551,29 @@ def filter_boxes(results):
         :param results:
         :return:
     """
-
+    ####################################################################################################################
     frame_interval = 7
+    ####################################################################################################################
 
     for i in range(len(results)):
         if len(results[i][2]) == len(results[i - 1][2]):
             continue
 
         next_coordinates_lengths = []
+        prev_coordinates_lengths = []
         for j in range(frame_interval):
             if i + j < len(results):
                 next_coordinates_lengths.append(len(results[i + j][2]))
+            if i - j > 0:
+                prev_coordinates_lengths.append(len(results[i - j][2]))
 
         c = Counter(next_coordinates_lengths)
-        if c[len(results[i - 1][2])] > c[len(results[i][2])] \
-                and (c[len(results[i][2])] + c[len(results[i - 1][2])] > frame_interval / 2):
-            results[i] = discard_probably_non_interesting_boxes(results, i, frame_interval)
+        c2 = Counter(prev_coordinates_lengths)
 
-    # for item in results:
-    #     print(item)
+        if (c[len(results[i - 1][2])] > c[len(results[i][2])] or c2[len(results[i - 1][2])] > c2[len(results[i][2])]) \
+                and (c[len(results[i][2])] + c[len(results[i - 1][2])] == frame_interval) \
+                and (c2[len(results[i][2])] + c2[len(results[i - 1][2])] == frame_interval):
+            results[i] = discard_probably_non_interesting_boxes(results, i, frame_interval)
 
     return results
 
@@ -535,8 +629,10 @@ def interpolate_and_save_coordinates(filename, skipping_indexes, results):
         :param skipping_indexes: indexes of the frames that skipped
         :return: Void
     """
+
     # Interpolation of coordinates
-    for item in skipping_indexes:
+    for i in tqdm(range(len(skipping_indexes))):
+        item = skipping_indexes[i]
         diff = results[item][0] - results[item - 1][0]
         idx = results[item - 1][0]
         if len(results[item][1]) < len(results[item - 1][1]):
@@ -547,32 +643,33 @@ def interpolate_and_save_coordinates(filename, skipping_indexes, results):
         prev_coordinates = results[item - 1][2]
         first_array, second_array = filter_and_sort(prev_coordinates, coordinates)
 
-        for i in range(diff - 1):
+        for k in range(diff - 1):
             aux_result = []
             for j in range(len(first_array)):
                 top_x_step = (second_array[j][0] - first_array[j][0]) / diff
                 top_y_step = (second_array[j][1] - first_array[j][1]) / diff
                 bot_x_step = (second_array[j][2] - first_array[j][2]) / diff
                 bot_y_step = (second_array[j][3] - first_array[j][3]) / diff
-                aux_coords = [ceil(first_array[j][0] + top_x_step * (i + 1)),
-                              ceil(first_array[j][1] + top_y_step * (i + 1)),
-                              ceil(first_array[j][2] + bot_x_step * (i + 1)),
-                              ceil(first_array[j][3] + bot_y_step * (i + 1))]
+                aux_coords = [ceil(first_array[j][0] + top_x_step * (k + 1)),
+                              ceil(first_array[j][1] + top_y_step * (k + 1)),
+                              ceil(first_array[j][2] + bot_x_step * (k + 1)),
+                              ceil(first_array[j][3] + bot_y_step * (k + 1))]
                 aux_result.append(np.array(aux_coords))
-            results.append([idx + i + 1, detections, aux_result, 0, ''])
+            results.append([idx + k + 1, detections, aux_result, 0, ''])
 
     # Saving results
     sql = """UPDATE frameInfo
-             SET frameIndex = ?, detections = ?, coordinates = ?, rotation = ?, tag = ?
-             WHERE frameIndex = ? AND rotation = ?"""
+             SET frameIndex = ?, detections = ?, coordinates = ?, rotation = 0, tag = ?
+             WHERE frameIndex = ? AND rotation = 0"""
+
     conn = sqlite3.connect('../db/' + filename + '.db')
     if conn is None:
         print('Error in connecting to the database')
         exit(3)
     for item in results:
-        data = (item[0], item[1], str(item[2]), 0, '', item[0], 0)
+        data = (item[0], item[1], str(item[2]), '', item[0])
         conn.cursor().execute(sql, data)
-        conn.commit()
+    conn.commit()
 
 
 def post_process(filename, size):
@@ -596,23 +693,48 @@ def post_process(filename, size):
         print('Error in connection to DB')
         exit(2)
 
+    print('Getting results from DB...', end='')
+    print('')  # test purposes
     # Remove results where YOLO found something in more than one possible rotation
     results = conn.cursor().execute(sql).fetchall()
     results = [list(item) for item in results]
-    results = filter_out_results(results)
+    print('Done')
+
+    print('Filtering out results...', end='')
+    results = filter_out_repeted_indexes(results)
+    print('Done')
+    print('Length after filtering out doubles', len(results))
+
     # transforming coordinates of rotated frames
+    print('Transforming coordinates and more filtering...', end='')
     results = transform_coordinates(results, size)
+    print('Done')
+
+    print('Handling outliers...')
+    results = handle_outliers(results, frame_interval)
+    print('Handled outliers')
+    print('Length after outlier handling', len(results))
+
+    print('Filtering boxes... ', end='')
     results = filter_boxes(results)
+    print('Done')
+
     indexes = [item[0] for item in results]
     skipping_indexes = []
 
+    print('Computing skipping indexes...', end='')
     for i in range(1, len(indexes)):
         if 1 < indexes[i] - indexes[i - 1] < frame_interval:
             skipping_indexes.append(i)
+    print('Done')
 
+    print('Interpolating coordinates...', end='')
     interpolate_and_save_coordinates(name_of_video, skipping_indexes, results)
-    for item in results:
-        print(item)
+    print('Interpolated and saved')
+
+    sql = """DELETE FROM frameInfo WHERE rotation <> 0"""
+    conn.cursor().execute(sql)
+    conn.commit()
 
 
 def find_background(filename):
@@ -623,7 +745,7 @@ def find_background(filename):
 
     sql = """SELECT frameIndex 
              FROM frameInfo 
-             WHERE detections = '' AND rotation = 0
+             WHERE detections = ''
              ORDER BY frameIndex"""
 
     name_of_video = filename.split('/')[-1][:-4]
@@ -631,28 +753,193 @@ def find_background(filename):
     if conn is None:
         print('Error in database connection')
         exit(3)
-    print('Searching for background frame...', end='')
+    print('Searching for background frame...')
     results = conn.cursor().execute(sql).fetchall()
     indexes = [item[0] for item in results]
 
     names = ['frame_' + str(idx) + '_0.png' for idx in indexes]
     os.chdir('../rotated_frames')
     ssims = []
+    prev_image = cv2.imread(names[0])
+    prev_image = cv2.cvtColor(prev_image, cv2.COLOR_BGR2GRAY)
 
-    for i in range(1, len(names)):
-        image_1 = cv2.imread(names[i - 1])
-        image_2 = cv2.imread(names[i])
-        image_1 = cv2.cvtColor(image_1, cv2.COLOR_BGR2GRAY)
-        image_2 = cv2.cvtColor(image_2, cv2.COLOR_BGR2GRAY)
-        (score, diff) = structural_similarity(image_1, image_2, full=True)
+    for i in tqdm(range(1, len(names))):
+
+        image = cv2.imread(names[i])
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        (score, diff) = ssim(prev_image, image, full=True)
+        prev_image = image
         ssims.append(score)
 
     max_sim = np.argmax(ssims)
     name = names[max_sim + 1]
-    shutil.copy(name, '../utils/' + name)
+    shutil.copy(name, '../utils/' + name_of_video + '_' + name)
 
     os.chdir('../code')
     print('Finished searching')
+
+
+def check_if_someone_exited(prev_coords, coords, tags, i):
+    """
+
+        :param prev_coords:
+        :param coords:
+        :param tags:
+        :param i:
+        :return:
+    """
+    tags = ' '.join(tags)
+    max_tag = tags.replace('tag_', '').split(' ')
+    max_tag = max(int(item) for item in max_tag if item != '')
+    diff_thresh = 50
+    dist = []
+    tags = tags.split(' ')
+    tags = [item for item in tags if item != '']
+
+    if len(prev_coords) < len(coords):
+        prev_coords, coords = coords, prev_coords
+
+    for item in prev_coords:
+        aux_dist = []
+        for second_item in coords:
+            aux_dist.append(distance(item, second_item))
+        dist.append(aux_dist)
+
+    for i in range(len(dist)):
+        if all(element > diff_thresh for element in dist[i]):
+            tags.pop(i)
+
+    tags = [item + ' ' for item in tags]
+
+    if len(tags) != 0:
+        tags = [' '.join(tags)]
+
+    return tags, int(max_tag)
+
+
+def associate_tag(filename):
+    """
+
+        :param filename:
+        :return:
+    """
+
+    print('Associating tags...')
+    name_of_video = filename.split('/')[-1][:-4]
+    conn = sqlite3.connect('../db/' + name_of_video + '.db')
+    sql = """SELECT * FROM frameInfo WHERE detections <> '' ORDER BY frameIndex"""
+    if conn is None:
+        print('Error in connecting to database')
+        exit(3)
+
+    tags_used = []
+    results = conn.cursor().execute(sql).fetchall()
+    indexes = [item[0] for item in results]
+    tags = []
+    max_tag = 0
+
+    coordinates = [item[2].replace('tensor', '').replace('array', '').replace(')', '').replace('(', '').replace(',', '')
+                       .replace('[', '').replace(']', '').replace('.', '').replace('device=\'cuda:0\'', '').split(' ')
+                   for item in results]
+
+    for i in range(len(coordinates)):
+        coordinates[i] = [int(item) for item in coordinates[i] if item != '']
+        coordinates[i] = np.array(coordinates[i]).reshape(-1, 4)
+
+    number_first_coordinates = len(coordinates[0])
+    string = ''
+    for i in range(number_first_coordinates):
+
+        tags_used.append(i)
+        string += 'tag_' + str(i) + ' '
+    tags.append([string])
+
+    for i in tqdm(range(1, len(indexes))):
+        if indexes[i] - indexes[i - 1] == 1:
+            aux_tags, last_tag = check_if_someone_exited(coordinates[i - 1], coordinates[i], tags[i - 1], i)
+            max_tag = max(last_tag, max_tag)
+            if len(aux_tags) < len(coordinates[i]):
+                for j in range(len(coordinates[i]) - len(aux_tags)):
+                    string = 'tag_' + str(max_tag + j + 1) + ' '
+
+                aux_tags.append(string)
+
+            num_tags = [int(item.replace('tag_', '').replace(' ', '')) for item in aux_tags if item != '']
+            max_tag = max(max_tag, max(num_tags))
+
+            tags.append(aux_tags)
+        else:
+            number_of_tags = len(coordinates[i])
+
+            aux_string = ''
+            for j in range(number_of_tags):
+                aux_string += 'tag_' + str(max_tag + j + 1) + ' '
+            tags.append([aux_string])
+
+    counter = 0
+    # for item in tags:
+    #     print(indexes[counter])
+    #     counter += 1
+    #     print(item)
+
+    sql = """UPDATE frameInfo SET tag = ?, coordinates = ? WHERE frameIndex = ? AND rotation = 0"""
+
+    for i in tqdm(range(len(indexes))):
+        conn.cursor().execute(sql, (str(tags[i]), str(coordinates[i]), indexes[i]))
+
+    conn.commit()
+    print('Finished')
+
+
+def save_video(filename, fps, size):
+    """
+
+        :param filename:
+        :return:
+    """
+    print('Creating video output...', end='')
+    name_of_video = filename.split('/')[-1][:-4]
+    sql = """SELECT tag, COUNT (*)
+             FROM frameInfo
+             WHERE detections <> ''
+             GROUP BY tag
+             ORDER BY tag"""
+
+    sql_2 = """SELECT *
+               FROM frameInfo
+               WHERE detections <> ''
+               ORDER BY frameIndeex"""
+
+    conn = sqlite3.connect('../db/' + name_of_video + '.db')
+    if conn is None:
+        print('Error while connecting to the database')
+        exit(3)
+    results = conn.cursor().execute(sql).fetchall()
+    results = [item for item in results]
+    print(results[0])
+    counts = [item[1] for item in results]
+    tags = [item[0] for item in results]
+    results_2 = conn.cursor().execute(sql_2).fetchall()
+    resulst_2 = [list(item) for item in results_2]
+    max_count = counts[np.argmax(counts)]
+
+    os.chdir('../utils')
+
+    for file in os.listdir('.'):
+        print(file)
+
+    os.chdir('../output')
+
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    writer = cv2.VideoWriter('' + name_of_video + '.mp4', fourcc, fps, (size[1], size[0]))
+
+    for i in tqdm(range(max_count)):
+
+        # writer.write(frame)
+        pass
+    writer.release()
+    os.chdir('../code')
+    print('Finished')
 
 
 def move_to_trash(filename):

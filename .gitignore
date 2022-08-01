@@ -2,9 +2,9 @@ data/
 code/venv/
 code/.idea/
 code/__pycache__/
-weights/
+weights/*.pt
 db/*.db
+db/*.db-journal
 frames/*.png
 rotated_frames/*.png
-code/utils_2.py
-rotated_frames_2/
+utils/*.png

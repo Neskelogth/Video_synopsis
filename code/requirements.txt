@@ -6,3 +6,4 @@ futures3~=1.0.0
 numpy~=1.23.0
 ffmpeg-python~=0.2.0
 scikit-image~=0.19.3
+tqdm~=4.64.0

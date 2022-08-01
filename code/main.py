@@ -1,5 +1,5 @@
 from utils import check_files, get_necessary_files, check_if_db_exists, get_video_info, process_video, post_process
-from utils import find_background, move_to_trash, remove_all_frames
+from utils import find_background, associate_tag, save_video, move_to_trash, remove_all_frames, distance
 import time
 
 
@@ -7,27 +7,30 @@ start = time.time()
 
 # initial declarations of constants
 data_path = '../data/08/cut_more_2.mp4'
-# input_small = input('Type y if you want to use the small version of YOLO, n if you want the xl version: ').lower()
-# input_gpu = input('Type y if you want to use the GPU, n otherwise: ').lower()
-small = True  # test purposes
 gpu = True
-# input_delete = input('Do you want to delete the db file after the process?(Y/N) ').lower()
 delete_db = False
+delete_frames = False
+output_process = False
+# input_gpu = input('Type y if you want to use the GPU, n otherwise: ').lower()
+# input_delete = input('Do you want to delete the db file after the process?(Y/N) ').lower()
 # input_delete_frames = input('Do you want to delete the frames used while processing when the process finishes?
 # (Y/N) ').lower()
-delete_frames = False
+# input_output = input('Do you want to see the output of YOLO on the console?(Y/N)').lower()
 
-# if input_small == 'y':
-#     small = True
-
-# if input_gpu == 'n':
-#     gpu = False
+# if input_output == 'y':
+#     output_process = True
 
 # if input_delete == 'y':
 #     delete_db = True
 
 # if input_delete_frames == 'y':
 #     delete_frames = True
+
+# if input_gpu == 'n':
+#     gpu = False
+# else:
+#     input("Please remember to insert the command to install pytorch with CUDA support on the file called command \
+#            in the utils folder. Press enter to continue")
 
 
 # if the requirements are not satisfied, exit with code 2
@@ -42,17 +45,21 @@ print('Checked all requirements')
 already_processed_file = check_if_db_exists(file_path)
 # print('File processed = ', already_processed_file)
 # Get all necessary files to run the project
-get_necessary_files(small, gpu)
+get_necessary_files(gpu)
 print('All files are set')
 
-frame_count, fps, duration, size = get_video_info(file_path)
-print(f'frame_count = {frame_count}, fps = {fps}, duration = {duration}, size = {size}')
+fps, size = get_video_info(file_path)
+print(f'fps = {fps}, size = {size}')
 
 # if the video has not been processed go through entire pipeline
 if not already_processed_file:
-    process_video(file_path, small, gpu)
-    post_process(file_path, size)
-    find_background(file_path)
+    process_video(file_path, gpu, output_process)
+    # post_process(file_path, size)
+    # find_background(file_path)
+    # associate_tag(file_path)
+    pass
+
+# save_video(file_path, fps, size)
 
 if delete_db:
     move_to_trash(file_path)
@@ -60,5 +67,7 @@ if delete_db:
 if delete_frames:
     remove_all_frames()
 
-print(f'Finished in {(time.time() - start) / 60} minutes')
+time = time.time() - start
+print(f'Finished in {time} seconds, which are {time / 60} minutes')
+
 
