@@ -1,12 +1,12 @@
 from utils import check_files, get_necessary_files, check_if_db_exists, get_video_info, process_video, post_process
-from utils import find_background, associate_tag, save_video, move_to_trash, remove_all_frames, distance
+from utils import find_background, associate_tag, save_video, move_to_trash, remove_all_frames, refine_tags
 import time
 
 
 start = time.time()
 
 # initial declarations of constants
-data_path = '../data/08/cut_more.mp4'
+data_path = '../data/08/cut_more_2.mp4'
 gpu = True
 delete_db = False
 delete_frames = False
@@ -43,13 +43,13 @@ print('Checked all requirements')
 
 # if the video has already been processed, don't process it again
 already_processed_file = check_if_db_exists(file_path)
-# print('File processed = ', already_processed_file)
+
 # Get all necessary files to run the project
 get_necessary_files(gpu)
 print('All files are set')
 
-fps, size = get_video_info(file_path)
-print(f'fps = {fps}, size = {size}')
+fps, size, frame_count = get_video_info(file_path)
+print(f'fps = {fps}, size = {size}, frame_count = {frame_count}')
 
 # if the video has not been processed go through entire pipeline
 if not already_processed_file:
@@ -57,6 +57,7 @@ if not already_processed_file:
     # post_process(file_path, size)
     # find_background(file_path)
     # associate_tag(file_path)
+    # refine_tags(file_path)
     pass
 
 save_video(file_path, fps, size)
@@ -68,5 +69,21 @@ if delete_frames:
     remove_all_frames()
 
 time = time.time() - start
-print(f'Finished in {time / 60} minutes')
+print(f'Finished in {time} seconds')
 
+
+# last_coords_test = {
+#     'tag_0': [],
+#     'tag_1': [182, 63, 327, 241],
+#     'tag_2': [41, 153, 203, 267],
+#     'tag_3': [0, 225, 45, 257]
+# }
+#
+# dead_tag_test = {
+#
+#     'tag_0': True,
+#     'tag_1': False,
+#     'tag_2': False,
+#     'tag_3': False
+# }
+# print(get_new_tags([], 3, dead_tag_test, last_coords_test))

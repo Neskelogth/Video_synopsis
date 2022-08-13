@@ -1,9 +1,9 @@
 wget~=3.2
 gitpython~=3.1.27
 opencv-python~=4.6.0.66
-Send2Trash~=1.8.0
-futures3~=1.0.0
-numpy~=1.23.0
 ffmpeg-python~=0.2.0
-scikit-image~=0.19.3
 tqdm~=4.64.0
+numpy~=1.23.0
+scikit-image~=0.19.3
+python-magic~=0.4.27
+Send2Trash~=1.8.0
