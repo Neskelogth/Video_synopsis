@@ -11,3 +11,5 @@ utils/*.png
 output/*.mp4
 *.pdf
 *.bat
+output/final_frames/*.png
+output/ffmpeg_frames.txt

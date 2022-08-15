@@ -1,6 +1,6 @@
+import time
 from utils import check_files, get_necessary_files, check_if_db_exists, get_video_info, process_video, post_process
 from utils import find_background, associate_tag, save_video, move_to_trash, remove_all_frames, refine_tags
-import time
 
 
 start = time.time()
@@ -30,14 +30,13 @@ output_process = False
 #     gpu = False
 # else:
 #     input("Please remember to insert the command to install pytorch with CUDA support on the file called command \
-#            in the utils folder. Press enter to continue")
+#            in the utils folder. Press enter to continue...")
 
 
 # if the requirements are not satisfied, exit with code 2
 file_path = check_files(data_path)
 if file_path is None:
     exit(2)
-
 
 print('Checked all requirements')
 
@@ -57,8 +56,7 @@ if not already_processed_file:
     # post_process(file_path, size)
     # find_background(file_path)
     # associate_tag(file_path)
-    # refine_tags(file_path)
-    pass
+    refine_tags(file_path)
 
 save_video(file_path, fps, size)
 
@@ -70,20 +68,3 @@ if delete_frames:
 
 time = time.time() - start
 print(f'Finished in {time} seconds')
-
-
-# last_coords_test = {
-#     'tag_0': [],
-#     'tag_1': [182, 63, 327, 241],
-#     'tag_2': [41, 153, 203, 267],
-#     'tag_3': [0, 225, 45, 257]
-# }
-#
-# dead_tag_test = {
-#
-#     'tag_0': True,
-#     'tag_1': False,
-#     'tag_2': False,
-#     'tag_3': False
-# }
-# print(get_new_tags([], 3, dead_tag_test, last_coords_test))

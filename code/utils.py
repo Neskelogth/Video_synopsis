@@ -67,7 +67,6 @@ def get_necessary_files(gpu):
     """
         Gets all the necessary files for the script to work
         :param gpu: True if the user wants to use the GPU for YOLO
-        :param small: True if the small model of YOLO has to be used
         :return: Void
     """
 
@@ -257,7 +256,7 @@ def rotate_frames():
             cv2.imwrite('../rotated_frames/' + list_of_files[i][:-5] + '270.png',
                         cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE))
 
-    for i in tqdm(range(len(list_of_files))):
+    for i in range(len(list_of_files)):
         if 'dummy_file' not in list_of_files[i]:
             shutil.move(list_of_files[i], '../rotated_frames/' + list_of_files[i])
     os.chdir('../code')
@@ -321,14 +320,6 @@ def process_video(filename, gpu, out):
         subprocess.check_call(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
 
     print('Finished processing')
-
-
-
-
-
-
-
-
 
 
 
@@ -458,7 +449,7 @@ def handle_outliers(results, frame_interval):
 
     coordinates = [item[2] for item in results]
     indexes = [item[0] for item in results]
-    diff_threshold = 50
+    diff_threshold = 100
     to_delete = []
 
     prev_coords = coordinates[0]
@@ -747,23 +738,6 @@ def post_process(filename, size):
     conn.commit()
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def find_background(filename):
     """
 
@@ -805,23 +779,6 @@ def find_background(filename):
     print('Finished searching')
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def get_new_tags(coords, max_tag, dead_tags, last_coords, iddx):
 
     """
@@ -858,10 +815,9 @@ def get_new_tags(coords, max_tag, dead_tags, last_coords, iddx):
     sorted_mins = [''] * len(min_dists)
     new_tag_list = [''] * len(coords)
     counter = 0
-    thresh = 50
+    thresh = 100
 
-    while any(item < max_dist + 1 for item in min_dists) and counter < 1000:
-        string = ''
+    while any(item < max_dist + 1 for item in min_dists) and counter < 100000:
         min_idx = np.argmin(min_dists)
         counter += 1
         if min_dists[min_idx] < thresh:
@@ -869,6 +825,11 @@ def get_new_tags(coords, max_tag, dead_tags, last_coords, iddx):
             string = str(min_idx) + ' ' + str(couple_min_idx)
             min_dists[min_idx] = max_dist + 1
             sorted_mins[min_idx] = string
+        else:
+            break
+
+    if counter == 100000:
+        print('max_count')
 
     counter = 0
     done = 0
@@ -922,7 +883,6 @@ def associate_tag(filename):
     coordinates = [item[2].replace('tensor', '').replace('array', '').replace(')', '').replace('(', '').replace(',', '')
                        .replace('[', '').replace(']', '').replace('.', '').replace('device=\'cuda:0\'', '').split(' ')
                    for item in results]
-
     for i in range(len(coordinates)):
         coordinates[i] = [int(item) for item in coordinates[i] if item != '']
         coordinates[i] = np.array(coordinates[i]).reshape(-1, 4)
@@ -935,7 +895,6 @@ def associate_tag(filename):
     dead_tags = {}
     last_found = {}
     last_time_coordinates = {}
-
     for i in range(number_first_coordinates):
         aux_string = 'tag_' + str(i)
         string += aux_string + ' '
@@ -962,7 +921,6 @@ def associate_tag(filename):
                         and tags_used[j] not in current_tags \
                         and indexes[i] - last_found[tags_used[j]] > interval_to_die:
                     dead_tags[tags_used[j]] = True
-
             string = ' '.join(current_tags)
             tags_per_frame.append(string)
             max_tag = max(max_tag, last_tag)
@@ -976,6 +934,7 @@ def associate_tag(filename):
                 dead_tags[s] = False
                 last_found[s] = indexes[i]
                 last_time_coordinates[s] = coordinates[i][j]
+
             tags_per_frame.append(aux_string)
             max_tag += number_of_tags
 
@@ -986,11 +945,6 @@ def associate_tag(filename):
 
     conn.commit()
     print('Finished')
-
-
-
-
-
 
 
 def find_segment(tag, tags_per_segment):
@@ -1028,7 +982,7 @@ def counter_in_segment(counters, segment, tags_per_segment):
     return current_counters
 
 
-def pick_most_probable_tag(candidates, counters, current_tags):
+def pick_most_probable_tag(candidates, counters, current_tags, results, idx):
 
     """
 
@@ -1038,13 +992,23 @@ def pick_most_probable_tag(candidates, counters, current_tags):
         :return:
     """
 
-    max_count = 0
-    final_tag = ''
+    max_counters = {}
 
-    for tag in candidates:
-        if tag not in current_tags and counters[tag] > max_count:
-            final_tag = tag
-            max_count = counters[tag]
+    for item in candidates:
+        if item not in max_counters.keys():
+            max_counters[item] = 0
+
+    frame_interval = 7
+
+    for i in range(frame_interval):
+        if idx - i > 0:
+            examined_tags = results[idx - i][4].split(' ')
+            examined_tags = [item for item in examined_tags if item != '' and item != ' ' and item in candidates]
+            for item in examined_tags:
+                max_counters[item] += 1
+
+    ordered_tags = dict(sorted(max_counters.items(), key=lambda item: item[1]))
+    final_tag = list(ordered_tags.keys())[0]
 
     return final_tag
 
@@ -1077,7 +1041,7 @@ def substitute_tag(tag, current_tags, counters_in_segment, segment, tags_per_seg
         current_tags.append(candidate_tags[0])
 
     if len(candidate_tags) > 1:
-        current_tags.append(pick_most_probable_tag(candidate_tags, counters_in_segment, current_tags))
+        current_tags.append(pick_most_probable_tag(candidate_tags, counters_in_segment, current_tags, results, i))
 
     return current_tags
 
@@ -1085,13 +1049,15 @@ def substitute_tag(tag, current_tags, counters_in_segment, segment, tags_per_seg
 def handle_index(tag, results, tags_per_segment, counters):
     """
 
+        :param counters:
         :param tag:
         :param results:
         :param tags_per_segment:
         :return:
     """
-
-    frame_interval = 7
+    ####################################################################################################################
+    frame_interval = 21
+    ####################################################################################################################
 
     for i in range(len(results)):
         current_tags = results[i][4].split(' ')
@@ -1163,7 +1129,8 @@ def refine_tags(filename):
     if conn is None:
         print('Error in connecting to the database')
         exit(3)
-    
+
+    thresh = 30
     results = conn.cursor().execute(sql).fetchall()
     results = [list(item) for item in results]
 
@@ -1197,11 +1164,14 @@ def refine_tags(filename):
             segment_counter += 1
             tags_per_segment[segment_counter] = current_tags
 
-    thresh = 30
-
     for key in counters.keys():
         if counters[key] < thresh:
             results = handle_index(key, results, tags_per_segment, counters)
+
+            
+
+    for i in range(1, len(results)):
+        pass
 
     sql = """UPDATE frameInfo SET tag = ?, coordinates = ? WHERE frameIndex = ?"""
     for result in results:
@@ -1209,20 +1179,6 @@ def refine_tags(filename):
 
     conn.commit()
     print('Done')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def proceed(counters, fpt):
@@ -1431,7 +1387,6 @@ def save_video(filename, fps, size):
 
     os.chdir('../output')
 
-    began = [False] * number_of_tags
     counters = [0] * number_of_tags
     counter = 0
     new_frames = {}
@@ -1440,6 +1395,7 @@ def save_video(filename, fps, size):
         present_boxes = {}
         for key in frames_per_tag:
             if len(frames_per_tag[key]) > 0:
+
                 box = get_next_box(results, key, frames_per_tag[key])
                 idx = frames_per_tag[key].pop(0)
                 present_boxes[idx] = box
@@ -1464,36 +1420,10 @@ def save_video(filename, fps, size):
     command = ['ffmpeg', '-f', 'concat', '-i', 'ffmpeg_frames.txt', '-framerate', str(int(fps)),
                '-c:v', 'copy', out_name, '-y']
 
-    subprocess.check_call(command, stderr=subprocess.DEVNULL)
+    subprocess.check_call(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     os.chdir('../code')
     print('Finished')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def move_to_trash(filename):
