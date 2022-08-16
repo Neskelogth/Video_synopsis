@@ -5,5 +5,5 @@ ffmpeg-python~=0.2.0
 tqdm~=4.64.0
 numpy~=1.23.0
 scikit-image~=0.19.3
-python-magic~=0.4.27
+python-magic~=0.4.14
 Send2Trash~=1.8.0

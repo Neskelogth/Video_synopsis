@@ -7,8 +7,11 @@ import sqlite3
 from sqlite3 import Error
 from collections import Counter
 from math import sqrt, floor
+import time
 
 # external modules imports
+from typing import List, Any
+
 import wget
 import git
 import cv2
@@ -97,7 +100,7 @@ def get_necessary_files(gpu):
     os.chdir('yolov5')
 
     if len(os.listdir('.')) == 0:
-        print('Cloning repo... ', end='')
+        print('Cloning YOLOv5 repo... ', end='')
         git.Repo.clone_from('https://github.com/ultralytics/yolov5.git', '.')
         print('Cloned repo')
 
@@ -276,7 +279,7 @@ def process_video(filename, gpu, out):
     remove_all_frames()
     print('Deleted')
 
-    weights_file = '../weights/crowdhuman_yolov5m.pt'
+    weights_file = '../weights/yolov5s6.pt'
 
     name_of_video = filename.split('/')[-1][:-4]
 
@@ -304,10 +307,9 @@ def process_video(filename, gpu, out):
     divide_into_frames(filename)
     rotate_frames()
 
-    command = ['python', 'modified_detect.py', '--source', '../rotated_frames/', '--weights', weights_file,
-               '--originalName', name_of_video, '--directory',
-               # '--classes', '0',
-               '--conf-thres', '0.1'  # , '--nosave'
+    command = [os.getcwd() + '/venv/Scripts/python', 'modified_detect.py', '--source', '../rotated_frames/',
+               '--weights', weights_file, '--originalName', name_of_video, '--directory',
+               '--classes', '0', '--conf-thres', '0.1'  # , '--nosave'
                ]
     if gpu:
         command.append('--device')
@@ -692,7 +694,6 @@ def post_process(filename, size):
         print('Error in connection to DB')
         exit(2)
 
-    # Remove results where YOLO found something in more than one possible rotation
     results = conn.cursor().execute(sql).fetchall()
     results = [list(item) for item in results]
 
@@ -805,9 +806,6 @@ def get_new_tags(coords, max_tag, dead_tags, last_coords, iddx):
             sorted_mins[min_idx] = string
         else:
             break
-
-    if counter == 100000:
-        print('max_count')
 
     counter = 0
     done = 0
@@ -1099,35 +1097,156 @@ def all_prev_present(prev, current):
 def new_tag(tag, results, idx):
     """"""
 
-    for i in range(idx):
+    found = False
+
+    for i in range(0, idx):
         tags = results[i][4].split(' ')
         tags = [tag.replace(' ', '') for tag in tags if tag != '' and tag != ' ']
         if tag in tags:
-            return False
+            found = True
 
-    return True
+    return not found
 
 
-def substitute(results, prev_tags, tags, current_tag, coordinates, prev_coordinates, idx, diff_threshold=50):
+def check_in_whole_segment(current_coords, results, idx, diff_thresh, tag_to_examine):
 
     """"""
 
-    if not new_tag(current_tag, results, idx) or \
-            (len(coordinates) > len(prev_coordinates) and all_prev_present(prev_coordinates, coordinates)):
+    min_dist = diff_thresh
+    new_tag = tag_to_examine
+    used_tags = []
+    current_id = results[idx][0]
+    curr_tags = results[idx][4].split(' ')
+    curr_tags = [item.replace(' ', '') for item in curr_tags if item != '' and item != ' ']
+    tag_index_to_examine = curr_tags.index(tag_to_examine)
+    current_coords = current_coords[tag_index_to_examine]
+
+    for i in range(1, idx):
+        examined_result = results[idx - i]
+        examined_coordinates = results[idx - i][2].replace('tensor(', '').replace(', device=\'cuda:0\')', '')\
+            .replace('.', '').replace(',', '').replace('[', '').replace(']', '').replace('\n', '')\
+            .replace('array(', '').replace(')', '').split(' ')
+        examined_coordinates = np.array([int(x) for x in examined_coordinates if x != '']).reshape(-1, 4)
+        if current_id - examined_result[0] > 1:
+            break
+        tags = examined_result[4].split(' ')
+        tags = [item.replace(' ', '') for item in tags if item != '' and item != ' ']
+        for j in range(len(tags)):
+            if tags[j] not in used_tags and distance(current_coords, examined_coordinates[j]) < min_dist:
+                new_tag = tags[j]
+                used_tags.append(tags[j])
+
+    return new_tag
+
+
+def substitute(results, prev_tags, tags, current_tag, coordinates, prev_coordinates, idx, i, diff_threshold=300):
+
+    """"""
+    if not new_tag(current_tag, results, i):
         return current_tag
 
+    if len(coordinates) > len(prev_coordinates) and all_prev_present(prev_coordinates, coordinates):
+        return check_in_whole_segment(coordinates, results, i, diff_threshold, current_tag)
+
     diff = []
+    current_tag_coords = coordinates[idx]
+    min_dist = diff_threshold
+    final_tag = current_tag
 
     for item in prev_tags:
         if item not in tags:
-            diff.append(item)
+            diff.append(prev_tags.index(item))
 
-    for item in diff:
-        pass
-
-    final_tag = ''
+    for i in diff:
+        if distance(current_tag_coords, prev_coordinates[i]) < min_dist:
+            final_tag = prev_tags[i]
 
     return final_tag
+
+
+def check_alternative(results, prev_tag, changed_tag, base_index):
+
+    segment_start = -1
+    start_found = False
+    segment_end = -1
+    end_found = False
+    alternative_tags = []
+    rank = {}
+    last_seen = {}
+
+    for i in range(1, len(results)):
+        if base_index - i >= 0:
+            if results[base_index - i + 1][0] - results[base_index - i][0] == 1 and not start_found:
+                segment_start = base_index - i
+            elif not start_found:
+                start_found = True
+        elif not start_found:
+            start_found = True
+            segment_start = 0
+
+        if base_index + i < len(results) - 1:
+            if results[base_index + i + 1][0] - results[base_index + i][0] == 1 and not end_found:
+                segment_end = base_index + i
+            elif not end_found:
+                end_found = True
+        elif not end_found:
+            end_found = True
+            segment_end = len(results) - 1
+
+    for i in range(segment_start, segment_end):
+        current_tags = results[i][4].split(' ')
+        current_tags = [item.replace(' ', '') for item in current_tags if item != '' and item != ' ']
+        for item in current_tags:
+            if item != prev_tag and item != changed_tag:
+                if item not in alternative_tags:
+                    alternative_tags.append(item)
+                if i < base_index:
+                    last_seen[item] = i
+                elif item not in last_seen:
+                    last_seen[item] = i
+
+    penalty = 100
+    current_tags = results[base_index][4].split(' ')
+    current_tags = [item.replace(' ', '') for item in current_tags if item != '' and item != ' ']
+    inner_index = current_tags.index(prev_tag)
+    current_coords = results[base_index][2].replace('tensor(', '').replace(', device=\'cuda:0\')', '')\
+        .replace('.', '').replace(',', '').replace('[', '').replace(']', '').replace('\n', '').replace('array(', '') \
+        .replace(')', '').split(' ')
+    current_coords = np.array([int(x) for x in current_coords if x != '']).reshape(-1, 4)[inner_index]
+
+    for tag in alternative_tags:
+        last_occ = last_seen[tag]
+        result = results[last_occ]
+        current_tags = result[4].split(' ')
+        current_tags = [item.replace(' ', '') for item in current_tags if item != '' and item != ' ']
+        coordinates = result[2].replace('tensor(', '').replace(', device=\'cuda:0\')', '').replace('.', '') \
+            .replace(',', '').replace('[', '').replace(']', '').replace('\n', '').replace('array(', '') \
+            .replace(')', '').split(' ')
+        coordinates = np.array([int(x) for x in coordinates if x != '']).reshape(-1, 4)[current_tags.index(tag)]
+        rank[tag] = distance(coordinates, current_coords)
+
+    rank = {k: v for k, v in sorted(rank.items(), key=lambda item: item[1])}
+    return rank
+
+
+def substitute_all(results, prev_tag, changed_tag):
+
+    for i in range(len(results)):
+        current_tags = results[i][4].split(' ')
+        current_tags = [item.replace(' ', '') for item in current_tags if item != '' and item != ' ']
+        for j in range(len(current_tags)):
+            if current_tags[j] == prev_tag:
+                if changed_tag not in current_tags:
+                    current_tags[j] = changed_tag
+                else:
+                    alternatives = check_alternative(results, prev_tag, changed_tag, i)
+                    for key in alternatives:
+                        if key not in current_tags:
+                            current_tags[j] = key
+                            break
+        results[i][4] = ' '.join(current_tags)
+
+    return results
 
 
 def refine_tags(filename):
@@ -1184,33 +1303,36 @@ def refine_tags(filename):
         if counters[key] < thresh:
             results = handle_index(key, results, tags_per_segment, counters)
 
-    # prev_coordinates = results[0][2].replace('tensor(', '').replace(', device=\'cuda:0\')', '').replace('.', '') \
-    #     .replace(',', '').replace('[', '').replace(']', '').replace('\n', '').replace('array(', '') \
-    #     .replace(')', '').split(' ')
-    # prev_coordinates = np.array([int(x) for x in prev_coordinates if x != '']).reshape(-1, 4)
-    # prev_idx = results[0][0]
-    #
-    # for i in range(1, len(results)):
-    #     new_idx = results[i][0]
-    #     coordinates = results[i][2].replace('tensor(', '').replace(', device=\'cuda:0\')', '').replace('.', '') \
-    #         .replace(',', '').replace('[', '').replace(']', '').replace('\n', '').replace('array(', '') \
-    #         .replace(')', '').split(' ')
-    #     coordinates = np.array([int(x) for x in coordinates if x != '']).reshape(-1, 4)
-    #     if new_idx - prev_idx == 1:
-    #         tags = results[i][4].split(' ')
-    #         tags = [item for item in tags if item != '' and item != ' ']
-    #         prev_tags = results[i - 1][4].split(' ')
-    #         prev_tags = [item for item in prev_tags if item != '' and item != ' ']
-    #
-    #         for j in range(len(tags)):
-    #             if tags[j] not in prev_tags:
-    #                 tags[j] = substitute(results, prev_tags, tags, tags[j], coordinates, prev_coordinates, j)
-    #
-    #         all_tags = ' '.join(tags)
-    #         results[i][4] = all_tags
-    #
-    #     prev_idx = new_idx
-    #     prev_coordinates = coordinates
+    prev_coordinates = results[0][2].replace('tensor(', '').replace(', device=\'cuda:0\')', '').replace('.', '') \
+        .replace(',', '').replace('[', '').replace(']', '').replace('\n', '').replace('array(', '') \
+        .replace(')', '').split(' ')
+    prev_coordinates = np.array([int(x) for x in prev_coordinates if x != '']).reshape(-1, 4)
+    prev_idx = results[0][0]
+
+    for i in range(1, len(results)):
+        new_idx = results[i][0]
+        coordinates = results[i][2].replace('tensor(', '').replace(', device=\'cuda:0\')', '').replace('.', '') \
+            .replace(',', '').replace('[', '').replace(']', '').replace('\n', '').replace('array(', '') \
+            .replace(')', '').split(' ')
+        coordinates = np.array([int(x) for x in coordinates if x != '']).reshape(-1, 4)
+
+        if new_idx - prev_idx == 1:
+            tags = results[i][4].split(' ')
+            tags = [item for item in tags if item != '' and item != ' ']
+            prev_tags = results[i - 1][4].split(' ')
+            prev_tags = [item for item in prev_tags if item != '' and item != ' ']
+
+            for j in range(len(tags)):
+                prev_tag = tags[j]
+                if tags[j] not in prev_tags:
+                    tags[j] = substitute(results, prev_tags, tags, tags[j], coordinates, prev_coordinates, j, i)
+                    if tags[j] != prev_tag:
+                        results = substitute_all(results, prev_tag, tags[j])
+
+            # results[i][4] = ' '.join(tags)
+
+        prev_idx = new_idx
+        prev_coordinates = coordinates
 
     sql = """UPDATE frameInfo SET tag = ?, coordinates = ? WHERE frameIndex = ?"""
     for result in results:
@@ -1457,7 +1579,13 @@ def save_video(filename, fps, size):
 
     subprocess.check_call(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    os.chdir('../code')
+    os.chdir('final_frames')
+
+    for file in os.listdir('.'):
+        if 'dummy_file' not in file:
+            os.remove(file)
+
+    os.chdir('../../code')
     print('Finished')
 
 
