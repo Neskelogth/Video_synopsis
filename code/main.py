@@ -51,14 +51,16 @@ fps, size, frame_count = get_video_info(file_path)
 print(f'fps = {fps}, size = {size}, frame_count = {frame_count}')
 
 # if the video has not been processed go through entire pipeline
+inter = time.time()
 if not already_processed_file:
-    # process_video(file_path, gpu, output_process)
-    # post_process(file_path, size)
-    # find_background(file_path)
-    # associate_tag(file_path)
+    process_video(file_path, gpu, output_process)
+    post_process(file_path, size)
+    find_background(file_path)
+    associate_tag(file_path)
     refine_tags(file_path)
-
+    
 save_video(file_path, fps, size)
+print('time of saving video', time.time() - inter)
 
 if delete_db:
     move_to_trash(file_path)

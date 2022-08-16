@@ -84,7 +84,7 @@ def get_necessary_files(gpu):
 
     if not os.path.exists('weights'):
         os.mkdir('weights')
-    
+
     if not os.path.exists('output'):
         os.mkdir('output')
         os.mkdir('output/final_frames')
@@ -276,7 +276,7 @@ def process_video(filename, gpu, out):
     remove_all_frames()
     print('Deleted')
 
-    weights_file = '../weights/yolov5s6.pt'
+    weights_file = '../weights/crowdhuman_yolov5m.pt'
 
     name_of_video = filename.split('/')[-1][:-4]
 
@@ -306,7 +306,8 @@ def process_video(filename, gpu, out):
 
     command = ['python', 'modified_detect.py', '--source', '../rotated_frames/', '--weights', weights_file,
                '--originalName', name_of_video, '--directory',
-               '--classes', '0', '--conf-thres', '0.1'  # , '--nosave'
+               # '--classes', '0',
+               '--conf-thres', '0.1'  # , '--nosave'
                ]
     if gpu:
         command.append('--device')
@@ -320,17 +321,6 @@ def process_video(filename, gpu, out):
         subprocess.check_call(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
 
     print('Finished processing')
-
-
-
-
-
-
-
-
-
-
-
 
 
 def distance(arr1, arr2):
@@ -530,6 +520,9 @@ def discard_probably_non_interesting_boxes(results, idx, frame_interval):
         sentinel1 = False
         sentinel2 = False
 
+        prev_result = []
+        current_result = []
+
         if idx + i < len(results):
             sentinel1 = True
             current_result = results[idx + i][2]
@@ -549,7 +542,7 @@ def filter_boxes(results):
         :return:
     """
     ####################################################################################################################
-    frame_interval = 33
+    frame_interval = 15
     ####################################################################################################################
 
     for i in range(len(results)):
@@ -622,7 +615,6 @@ def interpolate_coordinates(skipping_indexes, results):
         Interpolates the coordinates of bounding boxes on frames in which objects were probably not detected due to low
             confidence in the prediction
         :param results: results of the processing step
-        :param filename: name of the video being processed
         :param skipping_indexes: indexes of the frames that skipped
         :return: Void
     """
@@ -658,7 +650,6 @@ def interpolate_coordinates(skipping_indexes, results):
 
 
 def save_coordinates(results, filename):
-
     """
 
         :param filename:
@@ -687,6 +678,7 @@ def post_process(filename, size):
         :return: Void
     """
 
+    print('Start post processing... ', end='')
     frame_interval = 30
     name_of_video = filename.split('/')[-1][:-4]
     conn = sqlite3.connect('../db/' + name_of_video + '.db')
@@ -704,33 +696,20 @@ def post_process(filename, size):
     results = conn.cursor().execute(sql).fetchall()
     results = [list(item) for item in results]
 
-    print('Filtering out results...', end='')
     results = filter_out_repeated_indexes(results)
-    print('Done')
 
-    print('Transforming coordinates and more filtering...', end='')
     results = transform_coordinates(results, size)
-    print('Done')
-
-    print('Handling outliers...', end='')
     results = handle_outliers(results, frame_interval)
-    print('Handled outliers')
-
-    print('Filtering boxes... ', end='')
     results = filter_boxes(results)
-    print('Done')
 
     indexes = [item[0] for item in results]
     skipping_indexes = []
 
-    print('Interpolating coordinates...', end='')
     for i in range(1, len(indexes)):
         if 1 < indexes[i] - indexes[i - 1] < frame_interval:
             skipping_indexes.append(i)
 
     results = interpolate_coordinates(skipping_indexes, results)
-    print('Interpolated')
-
     save_coordinates(results, name_of_video)
 
     sql = """DELETE FROM frameInfo WHERE rotation <> 0"""
@@ -780,7 +759,6 @@ def find_background(filename):
 
 
 def get_new_tags(coords, max_tag, dead_tags, last_coords, iddx):
-
     """
 
         :param coords:
@@ -948,7 +926,6 @@ def associate_tag(filename):
 
 
 def find_segment(tag, tags_per_segment):
-
     """
 
         :param tag:
@@ -964,7 +941,6 @@ def find_segment(tag, tags_per_segment):
 
 
 def counter_in_segment(counters, segment, tags_per_segment):
-
     """
 
         :param counters:
@@ -983,9 +959,10 @@ def counter_in_segment(counters, segment, tags_per_segment):
 
 
 def pick_most_probable_tag(candidates, counters, current_tags, results, idx):
-
     """
 
+        :param idx:
+        :param results:
         :param candidates:
         :param counters:
         :param current_tags:
@@ -1014,7 +991,6 @@ def pick_most_probable_tag(candidates, counters, current_tags, results, idx):
 
 
 def substitute_tag(tag, current_tags, counters_in_segment, segment, tags_per_segment, results, i):
-
     """
 
         :param tag:
@@ -1071,27 +1047,25 @@ def handle_index(tag, results, tags_per_segment, counters):
             index_in_tags = current_tags.index(tag)
             current_len = len(coordinates)
             for j in range(frame_interval + 1):
-                # next_lengths = [current_len]
+                next_lengths = [current_len]
                 prev_lengths = [current_len]
-                # if i + j + 1 < len(results):
-                #     next_coordinates = results[i + j + 1][2].replace('array', '').replace('(', '').replace(')', '')\
-                #         .replace(',', '').replace('.', '').replace('[', '').replace(']', '').split(' ')
-                #     next_coordinates = np.array([int(item) for item in next_coordinates if item != '']).reshape(-1, 4)
-                #     next_lengths.append(len(next_coordinates))
+                if i + j + 1 < len(results):
+                    next_coordinates = results[i + j + 1][2].replace('array', '').replace('(', '').replace(')', '') \
+                        .replace(',', '').replace('.', '').replace('[', '').replace(']', '').split(' ')
+                    next_coordinates = np.array([int(item) for item in next_coordinates if item != '']).reshape(-1, 4)
+                    next_lengths.append(len(next_coordinates))
 
                 if i - j - 1 > 0:
-                    prev_coordinates = results[i - j - 1][2].replace('array', '').replace('(', '').replace(')', '')\
+                    prev_coordinates = results[i - j - 1][2].replace('array', '').replace('(', '').replace(')', '') \
                         .replace(',', '').replace('.', '').replace('[', '').replace(']', '').split(' ')
                     prev_coordinates = np.array([int(item) for item in prev_coordinates if item != '']).reshape(-1, 4)
                     prev_lengths.append(len(prev_coordinates))
 
-                # c1 = Counter(next_lengths)
+                c1 = Counter(next_lengths)
                 c2 = Counter(prev_lengths)
 
-                # c1[current_len] < floor(frame_interval / 2) \
-                # and
-
-                if c2[current_len] < floor(frame_interval / 2) and len(coordinates) > 1:
+                if len(coordinates) > 1 and c1[current_len] < floor(frame_interval / 2) \
+                        and c2[current_len] < floor(frame_interval / 2):
                     delete_condition = True
 
             if delete_condition:
@@ -1113,6 +1087,49 @@ def handle_index(tag, results, tags_per_segment, counters):
     return results
 
 
+def all_prev_present(prev, current):
+    """"""
+    for item in prev:
+        if item not in current:
+            return False
+
+    return True
+
+
+def new_tag(tag, results, idx):
+    """"""
+
+    for i in range(idx):
+        tags = results[i][4].split(' ')
+        tags = [tag.replace(' ', '') for tag in tags if tag != '' and tag != ' ']
+        if tag in tags:
+            return False
+
+    return True
+
+
+def substitute(results, prev_tags, tags, current_tag, coordinates, prev_coordinates, idx, diff_threshold=50):
+
+    """"""
+
+    if not new_tag(current_tag, results, idx) or \
+            (len(coordinates) > len(prev_coordinates) and all_prev_present(prev_coordinates, coordinates)):
+        return current_tag
+
+    diff = []
+
+    for item in prev_tags:
+        if item not in tags:
+            diff.append(item)
+
+    for item in diff:
+        pass
+
+    final_tag = ''
+
+    return final_tag
+
+
 def refine_tags(filename):
     """
 
@@ -1122,7 +1139,6 @@ def refine_tags(filename):
 
     print('Refining tags...', end='')
     name_of_video = filename.split('/')[-1][:-4]
-
     sql = """SELECT * FROM frameInfo WHERE coordinates <> '' ORDER BY frameIndex"""
 
     conn = sqlite3.connect('../db/' + name_of_video + '.db')
@@ -1130,13 +1146,13 @@ def refine_tags(filename):
         print('Error in connecting to the database')
         exit(3)
 
-    thresh = 30
     results = conn.cursor().execute(sql).fetchall()
     results = [list(item) for item in results]
 
     tags = [item[4] for item in results]
     indexes = [item[0] for item in results]
     counters = {}
+    thresh = 30
 
     for item in tags:
         current_tags = item.split(' ')
@@ -1146,18 +1162,18 @@ def refine_tags(filename):
                 counters[tag] = 1
             else:
                 counters[tag] += 1
-    
+
     aux_tags = tags[0].split(' ')
     tags_per_segment = {
-        0: [item for item in aux_tags if item != '']
+        0: [item.replace(' ', '') for item in aux_tags if item != '' and item != ' ']
     }
     segment_counter = 0
-    
+
     for i in range(1, len(results)):
         current_tags = tags[i].split(' ')
-        current_tags = [tag for tag in current_tags if tag != '']
+        current_tags = [tag.replace(' ', '') for tag in current_tags if tag != '' and tag != ' ']
         if indexes[i] - indexes[i - 1] == 1:
-            for tag in current_tags: 
+            for tag in current_tags:
                 if tag not in tags_per_segment[segment_counter]:
                     tags_per_segment[segment_counter].append(tag)
         else:
@@ -1168,10 +1184,33 @@ def refine_tags(filename):
         if counters[key] < thresh:
             results = handle_index(key, results, tags_per_segment, counters)
 
-            
-
-    for i in range(1, len(results)):
-        pass
+    # prev_coordinates = results[0][2].replace('tensor(', '').replace(', device=\'cuda:0\')', '').replace('.', '') \
+    #     .replace(',', '').replace('[', '').replace(']', '').replace('\n', '').replace('array(', '') \
+    #     .replace(')', '').split(' ')
+    # prev_coordinates = np.array([int(x) for x in prev_coordinates if x != '']).reshape(-1, 4)
+    # prev_idx = results[0][0]
+    #
+    # for i in range(1, len(results)):
+    #     new_idx = results[i][0]
+    #     coordinates = results[i][2].replace('tensor(', '').replace(', device=\'cuda:0\')', '').replace('.', '') \
+    #         .replace(',', '').replace('[', '').replace(']', '').replace('\n', '').replace('array(', '') \
+    #         .replace(')', '').split(' ')
+    #     coordinates = np.array([int(x) for x in coordinates if x != '']).reshape(-1, 4)
+    #     if new_idx - prev_idx == 1:
+    #         tags = results[i][4].split(' ')
+    #         tags = [item for item in tags if item != '' and item != ' ']
+    #         prev_tags = results[i - 1][4].split(' ')
+    #         prev_tags = [item for item in prev_tags if item != '' and item != ' ']
+    #
+    #         for j in range(len(tags)):
+    #             if tags[j] not in prev_tags:
+    #                 tags[j] = substitute(results, prev_tags, tags, tags[j], coordinates, prev_coordinates, j)
+    #
+    #         all_tags = ' '.join(tags)
+    #         results[i][4] = all_tags
+    #
+    #     prev_idx = new_idx
+    #     prev_coordinates = coordinates
 
     sql = """UPDATE frameInfo SET tag = ?, coordinates = ? WHERE frameIndex = ?"""
     for result in results:
@@ -1201,7 +1240,6 @@ def proceed(counters, fpt):
 
 
 def overlap(box1, box2):
-
     """
 
         :param box1:
@@ -1216,7 +1254,6 @@ def overlap(box1, box2):
 
 
 def compute_overlap(box, array, tolerance=0.1):
-
     box_area = (box[2] - box[0]) * (box[3] - box[1])
     if len(array) > 0:
         for item in array:
@@ -1230,7 +1267,6 @@ def compute_overlap(box, array, tolerance=0.1):
 
 
 def get_next_box(results, tag, indexes):
-
     box = []
     index_to_find = indexes[0]
 
@@ -1239,7 +1275,7 @@ def get_next_box(results, tag, indexes):
             current_tags = item[4].split(' ')
             current_tags = [tg.replace(' ', '') for tg in current_tags if tg != '' and tg != ' ']
             index_in_coords = current_tags.index(tag)
-            coords = item[2].replace('[', '').replace(']', '').replace('array', '').replace('(', '').replace(')', '')\
+            coords = item[2].replace('[', '').replace(']', '').replace('array', '').replace('(', '').replace(')', '') \
                 .replace(',', '').replace('\n', '').split(' ')
             coords = [it for it in coords if it != '']
             coords = np.array([int(it) for it in coords]).reshape(-1, 4)
@@ -1332,7 +1368,7 @@ def save_video(filename, fps, size):
     tags = [item[0].replace('[', '').replace(']', '').replace('\'', '').replace(',', '').split(' ') for item in results
             if item != '']
     list_of_tags = []
-    duration = str(1/fps)
+    duration = str(1 / fps)
 
     for i in range(len(tags)):
         tags[i] = [item for item in tags[i] if item != '']
@@ -1395,7 +1431,6 @@ def save_video(filename, fps, size):
         present_boxes = {}
         for key in frames_per_tag:
             if len(frames_per_tag[key]) > 0:
-
                 box = get_next_box(results, key, frames_per_tag[key])
                 idx = frames_per_tag[key].pop(0)
                 present_boxes[idx] = box
