@@ -5,11 +5,9 @@ code/__pycache__/
 weights/*.pt
 db/*.db
 db/*.db-journal
-frames/*.png
-rotated_frames/*.png
-utils/*.png
-output/*.mp4
+*.png
+*.mp4
 *.pdf
 *.bat
-output/final_frames/*.png
 output/ffmpeg_frames.txt
+*.avi

@@ -47,14 +47,12 @@ from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, time_sync
 
 
-def insert_data(filename, sql, idx, detections, coordinates, rotation=0):
+def insert_data(filename, sql, idx, detections, coordinates, rotation=0, conn):
 
-    conn = sqlite3.connect('../db/' + filename + '.db')
     data = (int(idx), str(detections), str(coordinates), int(rotation), '')
     if conn is not None:
         cur = conn.cursor()
         cur.execute(sql, data)
-        conn.commit()
 
 
 @torch.no_grad()
@@ -90,7 +88,9 @@ def run(
         dnn=False,  # use OpenCV DNN for ONNX inference
 ):
 
-    
+    conn = sqlite3.connect('../db/' + filename + '.db')
+    if conn is None:
+        print('Error in connecting to db')
     if classes:
         classes = classes[0].split(' ')
         classes = [int(x) for x in classes if x != '' and x != ' ']
@@ -255,9 +255,10 @@ def run(
         # Print time (inference-only)
         LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
 
-        insert_data(originalName, sql, idx, detections, coordinates, rotation)
+        insert_data(originalName, sql, idx, detections, coordinates, rotation, conn)
         aux_counter += 1
-
+    
+    conn.commit()
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
     LOGGER.info(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, *imgsz)}' % t)

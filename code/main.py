@@ -7,32 +7,32 @@ if __name__ == '__main__':
     start = time.time()
 
     # initial declarations of constants
-    data_path = '../data/13/2018-12-03 13-00-00~13-04-54.mp4'
+    data_path = ''
     gpu = True
     delete_db = False
     delete_frames = False
-    output_process = False
-    # input_gpu = input('Type y if you want to use the GPU, n otherwise: ').lower()
-    # input_delete = input('Do you want to delete the db file after the process?(Y/N) ').lower()
-    # input_delete_frames = input('Do you want to delete the frames used while processing when the process finishes?
-    # (Y/N) ').lower()
-    # input_output = input('Do you want to see the output of YOLO on the console?(Y/N)').lower()
+    output_process = True
+    input_gpu = input('Type y if you want to use the GPU, n otherwise: ').lower()
+    input_delete = input('Do you want to delete the db file after the process?(Y/N) ').lower()
+    input_delete_frames = \
+        input('Do you want to delete the frames used while processing when the process finishes? (Y/N) ').lower()
+    input_output = input('Do you want to see the output of YOLO on the console?(Y/N) ').lower()
+    data_path = input('Input the name of the file to be examined ')
+    data_path = '../data/' + data_path
 
-    # if input_output == 'y':
-    #     output_process = True
+    if input_output == 'y':
+        output_process = True
 
-    # if input_delete == 'y':
-    #     delete_db = True
+    if input_delete == 'y':
+        delete_db = True
 
-    # if input_delete_frames == 'y':
-    #     delete_frames = True
+    if input_delete_frames == 'y':
+        delete_frames = True
 
-    # if input_gpu == 'n':
-    #     gpu = False
-    # else:
-    #     input("Please remember to insert the command to install pytorch with CUDA support on the file called command \
-    #            in the utils folder. Press enter to continue...")
-
+    if input_gpu == 'n':
+        gpu = False
+    else:
+        input("Please remember to insert the command to install pytorch with CUDA support on the file called command in the utils folder. Press enter to continue...")
 
     # if the requirements are not satisfied, exit with code 2
     file_path = check_files(data_path)

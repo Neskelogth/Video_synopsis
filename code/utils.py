@@ -7,11 +7,8 @@ import sqlite3
 from sqlite3 import Error
 from collections import Counter
 from math import sqrt, floor
-import time
 
 # external modules imports
-from typing import List, Any
-
 import wget
 import git
 import cv2
@@ -33,6 +30,7 @@ def check_files(file_path):
     detect_path = '../utils/modified_detect.py'
 
     if not os.path.exists(file_path):
+        print(file_path)
         print('The file does not exist')
         return None
 
@@ -59,11 +57,21 @@ def check_if_db_exists(filename):
         :param filename: path of the file to be processed
         :return: True if the database exists
     """
-    return False  # test purposes
-    # name = filename.split('/')[-1][:-4]
-    # if os.path.exists('../db/' + name + '.db'):
-    #     return True
-    # return False
+    already_processed = False
+    name = filename.split('/')[-1][:-4]
+    if os.path.exists('../db/' + name + '.db'):
+        for file in os.listdir('../utils'):
+            if name in file:
+                already_processed = True
+
+    if not already_processed and os.path.exists('../db/' + name + '.db'):
+        os.remove('../db/' + name + '.db')
+    elif not already_processed:
+        for file in os.listdir('../utils'):
+            if name in file:
+                os.remove(file)
+
+    return already_processed
 
 
 def get_necessary_files(gpu):
@@ -318,6 +326,7 @@ def process_video(filename, gpu, out):
     print('Processing video. This operation may take some time, please wait... ', end='')
     os.chdir('../yolov5/')
     if out:
+        print('')
         subprocess.check_call(command)
     else:
         subprocess.check_call(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
@@ -716,11 +725,13 @@ def post_process(filename, size):
     sql = """DELETE FROM frameInfo WHERE rotation <> 0"""
     conn.cursor().execute(sql)
     conn.commit()
+    print('Finished post processing')
 
 
 def find_background(filename):
     """
 
+        :param: filename:
         :return: Void
     """
 
@@ -738,17 +749,17 @@ def find_background(filename):
     results = conn.cursor().execute(sql).fetchall()
     indexes = [item[0] for item in results]
 
-    names = ['frame_' + str(idx) + '_0.png' for idx in indexes]
+    names = ['frame_' + str(idx) + '_0.png' for idx in indexes if idx != 0]
+    prev_names = ['frame_' + str(idx - 1) + '_0.png' for idx in indexes if idx != 0]
     os.chdir('../rotated_frames')
     ssims = []
-    prev_image = cv2.imread(names[0])
-    prev_image = cv2.cvtColor(prev_image, cv2.COLOR_BGR2GRAY)
 
-    for i in tqdm(range(1, len(names))):
+    for i in tqdm(range(len(names))):
+        prev_image = cv2.imread(prev_names[i])
+        prev_image = cv2.cvtColor(prev_image, cv2.COLOR_BGR2GRAY)
         image = cv2.imread(names[i])
         image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         (score, diff) = ssim(prev_image, image, full=True)
-        prev_image = image
         ssims.append(score)
 
     max_sim = np.argmax(ssims)
@@ -759,7 +770,7 @@ def find_background(filename):
     print('Finished searching')
 
 
-def get_new_tags(coords, max_tag, dead_tags, last_coords, iddx):
+def get_new_tags(coords, max_tag, dead_tags, last_coords):
     """
 
         :param coords:
@@ -881,12 +892,12 @@ def associate_tag(filename):
 
     max_tag = int(tags_used[-1].split('_')[-1])
     tags_per_frame.append(string)
-    interval_to_die = 30
+    interval_to_die = 50
 
     for i in range(1, len(indexes)):
         if indexes[i] - indexes[i - 1] == 1:
 
-            current_tags, last_tag = get_new_tags(coordinates[i], max_tag, dead_tags, last_time_coordinates, i)
+            current_tags, last_tag = get_new_tags(coordinates[i], max_tag, dead_tags, last_time_coordinates)
             for j in range(len(current_tags)):
                 if current_tags[j] not in tags_used:
                     dead_tags[current_tags[j].replace(' ', '')] = False
@@ -1040,7 +1051,8 @@ def handle_index(tag, results, tags_per_segment, counters):
             delete_condition = False
 
             coordinates = results[i][2].replace('array', '').replace('(', '').replace(')', '').replace(',', '') \
-                .replace('.', '').replace('[', '').replace(']', '').split(' ')
+                .replace('.', '').replace('[', '').replace(']', '').replace('device=\'cuda:0\'', '')\
+                .replace('tensor', '').split(' ')
             coordinates = np.array([int(item) for item in coordinates if item != '']).reshape(-1, 4)
             index_in_tags = current_tags.index(tag)
             current_len = len(coordinates)
@@ -1049,7 +1061,8 @@ def handle_index(tag, results, tags_per_segment, counters):
                 prev_lengths = [current_len]
                 if i + j + 1 < len(results):
                     next_coordinates = results[i + j + 1][2].replace('array', '').replace('(', '').replace(')', '') \
-                        .replace(',', '').replace('.', '').replace('[', '').replace(']', '').split(' ')
+                        .replace(',', '').replace('.', '').replace('[', '').replace(']', '').replace('tensor', '')\
+                        .replace('device=\'cuda:0\'', '').split(' ')
                     next_coordinates = np.array([int(item) for item in next_coordinates if item != '']).reshape(-1, 4)
                     next_lengths.append(len(next_coordinates))
 
