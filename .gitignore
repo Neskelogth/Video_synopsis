@@ -7,7 +7,6 @@ db/*.db
 db/*.db-journal
 *.png
 *.mp4
-*.pdf
 *.bat
 output/ffmpeg_frames.txt
 *.avi
