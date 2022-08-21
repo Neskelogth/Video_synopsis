@@ -11,12 +11,12 @@ if __name__ == '__main__':
     gpu = True
     delete_db = False
     delete_frames = False
-    output_process = True
+    output_process = False
     input_gpu = input('Type y if you want to use the GPU, n otherwise: ').lower()
-    input_delete = input('Do you want to delete the db file after the process?(Y/N) ').lower()
+    input_delete = input('Do you want to delete the db file after the process?(y/n) ').lower()
     input_delete_frames = \
-        input('Do you want to delete the frames used while processing when the process finishes? (Y/N) ').lower()
-    input_output = input('Do you want to see the output of YOLO on the console?(Y/N) ').lower()
+        input('Do you want to delete the frames used while processing when the process finishes? (y/n) ').lower()
+    input_output = input('Do you want to see the output of YOLO on the console?(y/n) ').lower()
     data_path = input('Input the name of the file to be examined ')
     data_path = '../data/' + data_path
 
@@ -32,7 +32,7 @@ if __name__ == '__main__':
     if input_gpu == 'n':
         gpu = False
     else:
-        input("Please remember to insert the command to install pytorch with CUDA support on the file called command in the utils folder. Press enter to continue...")
+        input("Please remember to insert the command to install pytorch with CUDA support on the file called command in the utils folder if it is not installed yet. Press enter to continue")
 
     # if the requirements are not satisfied, exit with code 2
     file_path = check_files(data_path)
@@ -48,8 +48,8 @@ if __name__ == '__main__':
     get_necessary_files(gpu)
     print('All files are set')
 
-    fps, size, frame_count = get_video_info(file_path)
-    print(f'fps = {fps}, size = {size}, frame_count = {frame_count}')
+    fps, size = get_video_info(file_path)
+    print(f'fps = {fps}, size = {size}')
 
     # if the video has not been processed go through entire pipeline
     if not already_processed_file:

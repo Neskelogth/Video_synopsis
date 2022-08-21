@@ -22,7 +22,8 @@ import magic
 
 def check_files(file_path):
     """
-        Checks if the file to examine exists, if it's a video and if it is an mp4 file
+        Checks if the file to examine exists, if it's a video and if it is an mp4 file. Then it also checks the presence
+        of the modified_detect.py file
         :param file_path: path of the file to check
         :return: True if the conditions are met, False otherwise
     """
@@ -44,16 +45,23 @@ def check_files(file_path):
         print('The file is not in mp4 format, please input an mp4 file')
         return None
 
+    # 08/2018-12-03_08-15-00~08-19-59.mp4
+    name_of_video = file_path.split('/')[-1]
+    new_name = '/'.join(file_path.split('/')[:-1]) + '/' + file_path.split('/')[-1]
+
+    if ' ' in name_of_video:
+        os.rename(file_path, new_name)
+
     if not os.path.exists(detect_path):
         print('Missing important files, something went wrong')
         return None
 
-    return file_path
+    return new_name
 
 
 def check_if_db_exists(filename):
     """
-        Returns true if the db corresponding to the file exists
+        Returns true if the db and the background corresponding to the file exists
         :param filename: path of the file to be processed
         :return: True if the database exists
     """
@@ -141,7 +149,7 @@ def get_necessary_files(gpu):
 
     os.chdir('../weights')
 
-    if len(os.listdir('.')) == 0:
+    if not os.path.exists('yolov5s6.pt'):
         if not os.path.exists('yolov5s6.pt'):
             wget.download(link)
 
@@ -159,12 +167,11 @@ def get_video_info(filename):
 
     video = cv2.VideoCapture(filename)
     fps = video.get(cv2.CAP_PROP_FPS)
-    frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
     success, frame = video.read()
     size = (frame.shape[0], frame.shape[1])
     video.release()
 
-    return fps, size, frame_count
+    return fps, size
 
 
 def remove_all_frames():
@@ -240,7 +247,7 @@ def create_table(conn, cmd):
 
 def divide_into_frames(filename):
     """
-        Runs ffmpeg to divide the video in single frames
+        Runs ffmpeg to divide the video in single frames, saving them in frames/
         :param filename: name of the file to be divided
         :return: Void
     """
@@ -251,7 +258,7 @@ def divide_into_frames(filename):
 
 def rotate_frames():
     """
-        Rotates all the frames by 90, 180 and 270 degrees
+        Rotates all the frames by 90, 180 and 270 degrees and saves them in rotated_frames/
         :return: Void
     """
     print('Rotating frames... ')
@@ -315,9 +322,9 @@ def process_video(filename, gpu, out):
     divide_into_frames(filename)
     rotate_frames()
 
-    command = [os.getcwd() + '/venv/Scripts/python', 'modified_detect.py', '--source', '../rotated_frames/',
+    command = ['python', 'modified_detect.py', '--source', '../rotated_frames/',
                '--weights', weights_file, '--originalName', name_of_video, '--directory',
-               '--classes', '0', '--conf-thres', '0.1'  # , '--nosave'
+               '--classes', '0', '--conf-thres', '0.1', '--nosave'
                ]
     if gpu:
         command.append('--device')
@@ -351,10 +358,11 @@ def distance(arr1, arr2):
 
 def transform_coordinates(results, size):
     """
-
-        :param results:
-        :param size:
-        :return:
+        Transforms the coordinates saved in the database if the rotation is 90, 180 or 270 degrees, to find the
+        corresponding bounding box in the original frame
+        :param results: the list of results
+        :param size: The image size
+        :return: An array with the modified results
     """
     new_results = []
     height = size[0]
@@ -394,33 +402,10 @@ def transform_coordinates(results, size):
     return new_results
 
 
-def keep_biggest_boxes(coords, prev_coords, index):
-    """
-
-        :param coords:
-        :param prev_coords:
-        :param index:
-        :return:
-    """
-
-    coords_areas = []
-    prev_coords_areas = []
-
-    for i in range(len(coords)):
-        coords_areas.append((coords[i][3] - coords[i][1]) * (coords[i][2] - coords[i][0]))
-        prev_coords_areas.append((prev_coords[i][3] - prev_coords[i][1]) * (prev_coords[i][2] - prev_coords[i][0]))
-
-    diffs = [(coords_areas[i] - prev_coords_areas[i]) > 0 for i in range(len(coords_areas))]
-    c = Counter(diffs)
-    if c[True] > c[False]:
-        return index - 1
-
-    return index
-
-
 def filter_out_repeated_indexes(results):
     """
-        Filters the results removing detections where YOLO found something in the original and the rotated frames
+        Filters the results removing detections where YOLO found something in the original and the rotated frames. The
+        function keeps the results in which there are more bounding boxes
         :param results: results of the queried database
         :return: Filtered results
     """
@@ -442,10 +427,10 @@ def filter_out_repeated_indexes(results):
 
 def handle_outliers(results, frame_interval):
     """
-
-        :param frame_interval:
-        :param results:
-        :return:
+        Removes the bounding boxes considered outliers, based on a proximity distance in a certain number of frames
+        :param frame_interval: the interval of frames to check
+        :param results: The list of results from the database
+        :return: An array of the modified results
     """
 
     coordinates = [item[2] for item in results]
@@ -519,11 +504,11 @@ def keep_only_nearest_boxes(first_array, second_array):
 
 def discard_probably_non_interesting_boxes(results, idx, frame_interval):
     """
-
-        :param results:
-        :param idx:
-        :param frame_interval:
-        :return:
+        Discards the boxes found as not interesting in a certain frame interval
+        :param results: The results of the queried database
+        :param idx: Index of the current frame
+        :param frame_interval: number of frames to examine
+        :return: The modified result
     """
 
     for i in range(frame_interval):
@@ -539,22 +524,20 @@ def discard_probably_non_interesting_boxes(results, idx, frame_interval):
             current_result = results[idx + i][2]
         if idx - 1 > 0:
             sentinel2 = True
-            prev_result = results[idx - 1 + i][2]
+            prev_result = results[idx + i - 1][2]
 
         if sentinel2 and sentinel1 and len(prev_result) < len(current_result):
             results[idx + i][2] = keep_only_nearest_boxes(current_result, prev_result)
-    return results[idx]
+    return results[idx]  ###############################################################################################
 
 
 def filter_boxes(results):
     """
-
-        :param results:
-        :return:
+        Filters the boxes discarding the ones considered not interesting
+        :param results: Results of the queried database
+        :return: THe modified results
     """
-    ####################################################################################################################
     frame_interval = 15
-    ####################################################################################################################
 
     for i in range(len(results)):
         if len(results[i][2]) == len(results[i - 1][2]):
@@ -581,10 +564,10 @@ def filter_boxes(results):
 
 def filter_and_sort(prev_coord, coord):
     """
-
-        :param prev_coord:
-        :param coord:
-        :return:
+        Filters the coordinates in the results
+        :param prev_coord: Coordinates of the previous result
+        :param coord: Coordinates of the current result
+        :return: modified results
     """
 
     swapped = False
@@ -627,7 +610,7 @@ def interpolate_coordinates(skipping_indexes, results):
             confidence in the prediction
         :param results: results of the processing step
         :param skipping_indexes: indexes of the frames that skipped
-        :return: Void
+        :return: The modified results
     """
 
     # Interpolation of coordinates
@@ -662,9 +645,9 @@ def interpolate_coordinates(skipping_indexes, results):
 
 def save_coordinates(results, filename):
     """
-
-        :param filename:
-        :param results:
+        Saves the results overwriting on the database
+        :param filename: name of the database
+        :param results: the post-processed results
         :return: Void
     """
     sql = """UPDATE frameInfo
@@ -683,7 +666,7 @@ def save_coordinates(results, filename):
 
 def post_process(filename, size):
     """
-
+        Post processes the results obtained with YOLO and saves them
         :param filename: path of the file
         :param size: image size
         :return: Void
@@ -730,8 +713,8 @@ def post_process(filename, size):
 
 def find_background(filename):
     """
-
-        :param: filename:
+        Searches for the background to use in the final output
+        :param: filename: Name of the database in which the detections are saved
         :return: Void
     """
 
@@ -771,14 +754,6 @@ def find_background(filename):
 
 
 def get_new_tags(coords, max_tag, dead_tags, last_coords):
-    """
-
-        :param coords:
-        :param max_tag:
-        :param dead_tags:
-        :param last_coords:
-        :return:
-    """
 
     all_dists = []
     min_dists = []
@@ -849,11 +824,6 @@ def get_new_tags(coords, max_tag, dead_tags, last_coords):
 
 
 def associate_tag(filename):
-    """
-
-        :param filename:
-        :return:
-    """
 
     print('Associating tags...', end='')
     name_of_video = filename.split('/')[-1][:-4]
@@ -935,12 +905,6 @@ def associate_tag(filename):
 
 
 def find_segment(tag, tags_per_segment):
-    """
-
-        :param tag:
-        :param tags_per_segment:
-        :return:
-    """
 
     for key in tags_per_segment:
         if tag in tags_per_segment[key]:
@@ -950,13 +914,6 @@ def find_segment(tag, tags_per_segment):
 
 
 def counter_in_segment(counters, segment, tags_per_segment):
-    """
-
-        :param counters:
-        :param segment:
-        :param tags_per_segment:
-        :return:
-    """
 
     needed_tags = tags_per_segment[segment]
     current_counters = {}
@@ -967,15 +924,13 @@ def counter_in_segment(counters, segment, tags_per_segment):
     return current_counters
 
 
-def pick_most_probable_tag(candidates, counters, current_tags, results, idx):
+def pick_most_probable_tag(candidates, results, idx):
     """
-
-        :param idx:
-        :param results:
-        :param candidates:
-        :param counters:
-        :param current_tags:
-        :return:
+        Picks the most probable tag in candidates given the current tags
+        :param candidates: candidates results
+        :param results: list of results
+        :param idx: current index
+        :return: The most probable tag
     """
 
     max_counters = {}
@@ -1000,17 +955,6 @@ def pick_most_probable_tag(candidates, counters, current_tags, results, idx):
 
 
 def substitute_tag(tag, current_tags, counters_in_segment, segment, tags_per_segment, results, i):
-    """
-
-        :param tag:
-        :param current_tags:
-        :param counters_in_segment:
-        :param segment:
-        :param tags_per_segment:
-        :param results:
-        :param i:
-        :return:
-    """
 
     frame_min = 30
     candidate_tags = []
@@ -1026,23 +970,14 @@ def substitute_tag(tag, current_tags, counters_in_segment, segment, tags_per_seg
         current_tags.append(candidate_tags[0])
 
     if len(candidate_tags) > 1:
-        current_tags.append(pick_most_probable_tag(candidate_tags, counters_in_segment, current_tags, results, i))
+        current_tags.append(pick_most_probable_tag(candidate_tags, results, i))
 
     return current_tags
 
 
 def handle_index(tag, results, tags_per_segment, counters):
-    """
 
-        :param counters:
-        :param tag:
-        :param results:
-        :param tags_per_segment:
-        :return:
-    """
-    ####################################################################################################################
     frame_interval = 21
-    ####################################################################################################################
 
     for i in range(len(results)):
         current_tags = results[i][4].split(' ')
@@ -1099,7 +1034,12 @@ def handle_index(tag, results, tags_per_segment, counters):
 
 
 def all_prev_present(prev, current):
-    """"""
+    """
+        Checks if all items in prev are present in current
+        :param prev: List of previous tags
+        :param current: List of current tags
+        :return: Boolean
+    """
     for item in prev:
         if item not in current:
             return False
@@ -1108,7 +1048,13 @@ def all_prev_present(prev, current):
 
 
 def new_tag(tag, results, idx):
-    """"""
+    """
+        Checks if tag is found for the first time at the index isx in the results
+        :param tag: tag to find
+        :param results: list of results
+        :param idx: index to stop at
+        :return: Boolean
+    """
 
     found = False
 
@@ -1122,8 +1068,6 @@ def new_tag(tag, results, idx):
 
 
 def check_in_whole_segment(current_coords, results, idx, diff_thresh, tag_to_examine):
-
-    """"""
 
     min_dist = diff_thresh
     new_tag = tag_to_examine
@@ -1154,7 +1098,6 @@ def check_in_whole_segment(current_coords, results, idx, diff_thresh, tag_to_exa
 
 def substitute(results, prev_tags, tags, current_tag, coordinates, prev_coordinates, idx, i, diff_threshold=300):
 
-    """"""
     if not new_tag(current_tag, results, i):
         return current_tag
 
@@ -1178,6 +1121,15 @@ def substitute(results, prev_tags, tags, current_tag, coordinates, prev_coordina
 
 
 def check_alternative(results, prev_tag, changed_tag, base_index):
+
+    """
+        Finds a possible alternative for prev_tag, which is not changed_tag in the results
+        :param results: list of results
+        :param prev_tag: tag to change
+        :param changed_tag: tag that cannot be used
+        :param base_index: index of results from which to start
+        :return: ranking of the tags
+    """
 
     segment_start = -1
     start_found = False
@@ -1218,7 +1170,6 @@ def check_alternative(results, prev_tag, changed_tag, base_index):
                 elif item not in last_seen:
                     last_seen[item] = i
 
-    penalty = 100
     current_tags = results[base_index][4].split(' ')
     current_tags = [item.replace(' ', '') for item in current_tags if item != '' and item != ' ']
     inner_index = current_tags.index(prev_tag)
@@ -1244,6 +1195,15 @@ def check_alternative(results, prev_tag, changed_tag, base_index):
 
 def substitute_all(results, prev_tag, changed_tag):
 
+    """
+        Substitutes all instances of prev_tag with changed_tag if changed_tag is not present, otherwise changes with
+        another tag
+        :param results: List of results
+        :param prev_tag: tag to change
+        :param changed_tag: tag to have instead of prev_tag
+        :return: modified results
+    """
+
     for i in range(len(results)):
         current_tags = results[i][4].split(' ')
         current_tags = [item.replace(' ', '') for item in current_tags if item != '' and item != ' ']
@@ -1264,9 +1224,10 @@ def substitute_all(results, prev_tag, changed_tag):
 
 def refine_tags(filename):
     """
-
-        :param filename:
-        :return:
+        Refines the tags after the tag association, deleting or replacing all tags that are not present for more than 30
+        frames
+        :param filename: name of the file
+        :return: Void
     """
 
     print('Refining tags...', end='')
@@ -1357,10 +1318,10 @@ def refine_tags(filename):
 
 def proceed(counters, fpt):
     """
-
-        :param counters:
-        :param fpt:
-        :return:
+        Returns True if there are still frames to create, False otherwise
+        :param counters: counters keeping track of how many frames have been created
+        :param fpt: frames per every tag
+        :return: Boolean
     """
     lengths = []
     counter = 0
@@ -1376,10 +1337,10 @@ def proceed(counters, fpt):
 
 def overlap(box1, box2):
     """
-
-        :param box1:
-        :param box2:
-        :return:
+        Computes the area of overlap between 2 boxes
+        :param box1: Fist box
+        :param box2: Second box
+        :return: overlap area
     """
 
     overlap_on_x = max(min(box1[2], box2[2]) - max(box1[0], box2[0]), 0)
@@ -1389,6 +1350,13 @@ def overlap(box1, box2):
 
 
 def compute_overlap(box, array, tolerance=0.1):
+    """
+        Returns True if the overlap is greater than tolerance after dividing it by the smallest box area
+        :param box: The box of which the overlap must be computed
+        :param array: Array of boxes to compute the overlap with
+        :param tolerance: Tolerance of overlap
+        :return: Boolean
+    """
     box_area = (box[2] - box[0]) * (box[3] - box[1])
     if len(array) > 0:
         for item in array:
@@ -1402,6 +1370,15 @@ def compute_overlap(box, array, tolerance=0.1):
 
 
 def get_next_box(results, tag, indexes):
+
+    """
+        Gets next box corresponding to the given tag in the results
+        :param results: The results from the query
+        :param tag: The given tag
+        :param indexes: The indexes in which the boxes of the tag are present
+        :return: The next box
+    """
+
     box = []
     index_to_find = indexes[0]
 
@@ -1422,10 +1399,10 @@ def get_next_box(results, tag, indexes):
 
 def different(box1, box2):
     """
-
-        :param box1:
-        :param box2:
-        :return:
+        Returns True if box1 and box2 are different, False otherwise
+        :param box1: first array of coordinates
+        :param box2: second array of coordinates
+        :return: Boolean
     """
     if len(box1) != len(box2):
         return True
@@ -1437,20 +1414,20 @@ def different(box1, box2):
     return False
 
 
-def build_image(present_boxes, bg_copy, dict, alpha=0.7):
+def build_image(present_boxes, bg_copy, dictionary, alpha=0.7):
     """
-
-        :param present_boxes:
-        :param bg_copy:
-        :param dict:
-        :param alpha:
-        :return:
+        Creates the image to use as frame in the video
+        :param present_boxes: all boxes to be inserted in the current frame
+        :param bg_copy: copy of the background frame
+        :param dictionary: dictionary with the new frames
+        :param alpha: alpha to be used if boxes overlap
+        :return: The frames to be inserted in the video
     """
 
     os.chdir('../rotated_frames/')
     frame_indexes = []
 
-    for key in dict:
+    for key in dictionary:
         frame_indexes.append(key)
 
     counter = 0
@@ -1480,11 +1457,11 @@ def build_image(present_boxes, bg_copy, dict, alpha=0.7):
 
 def save_video(filename, fps, size):
     """
-
-        :param filename:
-        :param fps:
-        :param size:
-        :return:
+        Creates the output file and saves it in form of a video
+        :param filename: path of the video used
+        :param fps: fps of the video
+        :param size: size of the video
+        :return: Void
     """
     print('Creating video output...', end='')
     name_of_video = filename.split('/')[-1][:-4]
