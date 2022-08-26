@@ -13,7 +13,6 @@ import wget
 import git
 import cv2
 from send2trash import send2trash
-import ffmpeg
 import numpy as np
 from skimage.metrics import structural_similarity as ssim
 from tqdm import tqdm
@@ -65,6 +64,7 @@ def check_if_db_exists(filename):
         :param filename: path of the file to be processed
         :return: True if the database exists
     """
+    return False
     already_processed = False
     name = filename.split('/')[-1][:-4]
     if os.path.exists('../db/' + name + '.db'):
@@ -74,10 +74,6 @@ def check_if_db_exists(filename):
 
     if not already_processed and os.path.exists('../db/' + name + '.db'):
         os.remove('../db/' + name + '.db')
-    elif not already_processed:
-        for file in os.listdir('../utils'):
-            if name in file:
-                os.remove(file)
 
     return already_processed
 
@@ -252,7 +248,8 @@ def divide_into_frames(filename):
         :return: Void
     """
     print('Dividing into frames... ', end='')
-    ffmpeg.input(filename).output('../frames/frame_%d_0.png', start_number=0).run(quiet=True)
+    command = ['ffmpeg', '-i', filename, '../frames/frame_%d_0.png']
+    subprocess.check_call(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     print('Divided into frames')
 
 
@@ -732,8 +729,8 @@ def find_background(filename):
     results = conn.cursor().execute(sql).fetchall()
     indexes = [item[0] for item in results]
 
-    names = ['frame_' + str(idx) + '_0.png' for idx in indexes if idx != 0]
-    prev_names = ['frame_' + str(idx - 1) + '_0.png' for idx in indexes if idx != 0]
+    names = ['frame_' + str(idx) + '_0.png' for idx in indexes if idx != 1]
+    prev_names = ['frame_' + str(idx - 1) + '_0.png' for idx in indexes if idx != 1]
     os.chdir('../rotated_frames')
     ssims = []
 
@@ -746,7 +743,7 @@ def find_background(filename):
         ssims.append(score)
 
     max_sim = np.argmax(ssims)
-    name = names[max_sim + 1]
+    name = names[max_sim]
     shutil.copy(name, '../utils/' + name_of_video + '_background.png')
 
     os.chdir('../code')
@@ -754,7 +751,6 @@ def find_background(filename):
 
 
 def get_new_tags(coords, max_tag, dead_tags, last_coords):
-
     all_dists = []
     min_dists = []
     possible_tags = []
@@ -824,7 +820,6 @@ def get_new_tags(coords, max_tag, dead_tags, last_coords):
 
 
 def associate_tag(filename):
-
     print('Associating tags...', end='')
     name_of_video = filename.split('/')[-1][:-4]
     conn = sqlite3.connect('../db/' + name_of_video + '.db')
@@ -905,7 +900,6 @@ def associate_tag(filename):
 
 
 def find_segment(tag, tags_per_segment):
-
     for key in tags_per_segment:
         if tag in tags_per_segment[key]:
             return key
@@ -914,7 +908,6 @@ def find_segment(tag, tags_per_segment):
 
 
 def counter_in_segment(counters, segment, tags_per_segment):
-
     needed_tags = tags_per_segment[segment]
     current_counters = {}
 
@@ -955,7 +948,6 @@ def pick_most_probable_tag(candidates, results, idx):
 
 
 def substitute_tag(tag, current_tags, counters_in_segment, segment, tags_per_segment, results, i):
-
     frame_min = 30
     candidate_tags = []
     tags_per_segment = tags_per_segment[segment]
@@ -976,7 +968,6 @@ def substitute_tag(tag, current_tags, counters_in_segment, segment, tags_per_seg
 
 
 def handle_index(tag, results, tags_per_segment, counters):
-
     frame_interval = 21
 
     for i in range(len(results)):
@@ -986,7 +977,7 @@ def handle_index(tag, results, tags_per_segment, counters):
             delete_condition = False
 
             coordinates = results[i][2].replace('array', '').replace('(', '').replace(')', '').replace(',', '') \
-                .replace('.', '').replace('[', '').replace(']', '').replace('device=\'cuda:0\'', '')\
+                .replace('.', '').replace('[', '').replace(']', '').replace('device=\'cuda:0\'', '') \
                 .replace('tensor', '').split(' ')
             coordinates = np.array([int(item) for item in coordinates if item != '']).reshape(-1, 4)
             index_in_tags = current_tags.index(tag)
@@ -996,14 +987,15 @@ def handle_index(tag, results, tags_per_segment, counters):
                 prev_lengths = [current_len]
                 if i + j + 1 < len(results):
                     next_coordinates = results[i + j + 1][2].replace('array', '').replace('(', '').replace(')', '') \
-                        .replace(',', '').replace('.', '').replace('[', '').replace(']', '').replace('tensor', '')\
+                        .replace(',', '').replace('.', '').replace('[', '').replace(']', '').replace('tensor', '') \
                         .replace('device=\'cuda:0\'', '').split(' ')
                     next_coordinates = np.array([int(item) for item in next_coordinates if item != '']).reshape(-1, 4)
                     next_lengths.append(len(next_coordinates))
 
                 if i - j - 1 > 0:
                     prev_coordinates = results[i - j - 1][2].replace('array', '').replace('(', '').replace(')', '') \
-                        .replace(',', '').replace('.', '').replace('[', '').replace(']', '').split(' ')
+                        .replace(',', '').replace('.', '').replace('[', '').replace(']', '').replace('tensor', '') \
+                        .replace("device='cuda:0'", '').split(' ')
                     prev_coordinates = np.array([int(item) for item in prev_coordinates if item != '']).reshape(-1, 4)
                     prev_lengths.append(len(prev_coordinates))
 
@@ -1068,7 +1060,6 @@ def new_tag(tag, results, idx):
 
 
 def check_in_whole_segment(current_coords, results, idx, diff_thresh, tag_to_examine):
-
     min_dist = diff_thresh
     new_tag = tag_to_examine
     used_tags = []
@@ -1080,8 +1071,8 @@ def check_in_whole_segment(current_coords, results, idx, diff_thresh, tag_to_exa
 
     for i in range(1, idx):
         examined_result = results[idx - i]
-        examined_coordinates = results[idx - i][2].replace('tensor(', '').replace(', device=\'cuda:0\')', '')\
-            .replace('.', '').replace(',', '').replace('[', '').replace(']', '').replace('\n', '')\
+        examined_coordinates = results[idx - i][2].replace('tensor(', '').replace(', device=\'cuda:0\')', '') \
+            .replace('.', '').replace(',', '').replace('[', '').replace(']', '').replace('\n', '') \
             .replace('array(', '').replace(')', '').split(' ')
         examined_coordinates = np.array([int(x) for x in examined_coordinates if x != '']).reshape(-1, 4)
         if current_id - examined_result[0] > 1:
@@ -1097,7 +1088,6 @@ def check_in_whole_segment(current_coords, results, idx, diff_thresh, tag_to_exa
 
 
 def substitute(results, prev_tags, tags, current_tag, coordinates, prev_coordinates, idx, i, diff_threshold=300):
-
     if not new_tag(current_tag, results, i):
         return current_tag
 
@@ -1121,7 +1111,6 @@ def substitute(results, prev_tags, tags, current_tag, coordinates, prev_coordina
 
 
 def check_alternative(results, prev_tag, changed_tag, base_index):
-
     """
         Finds a possible alternative for prev_tag, which is not changed_tag in the results
         :param results: list of results
@@ -1173,7 +1162,7 @@ def check_alternative(results, prev_tag, changed_tag, base_index):
     current_tags = results[base_index][4].split(' ')
     current_tags = [item.replace(' ', '') for item in current_tags if item != '' and item != ' ']
     inner_index = current_tags.index(prev_tag)
-    current_coords = results[base_index][2].replace('tensor(', '').replace(', device=\'cuda:0\')', '')\
+    current_coords = results[base_index][2].replace('tensor(', '').replace(', device=\'cuda:0\')', '') \
         .replace('.', '').replace(',', '').replace('[', '').replace(']', '').replace('\n', '').replace('array(', '') \
         .replace(')', '').split(' ')
     current_coords = np.array([int(x) for x in current_coords if x != '']).reshape(-1, 4)[inner_index]
@@ -1194,7 +1183,6 @@ def check_alternative(results, prev_tag, changed_tag, base_index):
 
 
 def substitute_all(results, prev_tag, changed_tag):
-
     """
         Substitutes all instances of prev_tag with changed_tag if changed_tag is not present, otherwise changes with
         another tag
@@ -1245,7 +1233,7 @@ def refine_tags(filename):
     tags = [item[4] for item in results]
     indexes = [item[0] for item in results]
     counters = {}
-    thresh = 30
+    thresh = 70
 
     for item in tags:
         current_tags = item.split(' ')
@@ -1370,7 +1358,6 @@ def compute_overlap(box, array, tolerance=0.1):
 
 
 def get_next_box(results, tag, indexes):
-
     """
         Gets next box corresponding to the given tag in the results
         :param results: The results from the query
@@ -1380,20 +1367,21 @@ def get_next_box(results, tag, indexes):
     """
 
     box = []
-    index_to_find = indexes[0]
+    if len(indexes) > 0:
+        index_to_find = indexes[0]
 
-    for item in results:
-        if item[0] == index_to_find:
-            current_tags = item[4].split(' ')
-            current_tags = [tg.replace(' ', '') for tg in current_tags if tg != '' and tg != ' ']
-            index_in_coords = current_tags.index(tag)
-            coords = item[2].replace('[', '').replace(']', '').replace('array', '').replace('(', '').replace(')', '') \
-                .replace(',', '').replace('\n', '').split(' ')
-            coords = [it for it in coords if it != '']
-            coords = np.array([int(it) for it in coords]).reshape(-1, 4)
-            box = coords[index_in_coords]
-            break
-
+        for item in results:
+            if item[0] == index_to_find:
+                current_tags = item[4].split(' ')
+                current_tags = [tg.replace(' ', '') for tg in current_tags if tg != '' and tg != ' ']
+                index_in_coords = current_tags.index(tag)
+                coords = item[2].replace('[', '').replace(']', '').replace('array', '').replace('(', '').replace(')', '') \
+                    .replace(',', '').replace('\n', '').replace('tensor', '').replace('.', '') \
+                    .replace("device='cuda:0'", '').split(' ')
+                coords = [it.replace(' ', '') for it in coords if it != '' and it != ' ']
+                coords = np.array([int(it) for it in coords]).reshape(-1, 4)
+                box = coords[index_in_coords]
+                break
     return box
 
 
@@ -1455,12 +1443,23 @@ def build_image(present_boxes, bg_copy, dictionary, alpha=0.7):
     return bg_copy
 
 
-def save_video(filename, fps, size):
+def get_all_boxes(began, frames, tag, results):
+
+    boxes = []
+    for key in frames:
+        if key != tag and began[key]:
+            box = get_next_box(results, key, frames[key])
+            if len(box) > 0:
+                boxes.append(box)
+
+    return boxes
+
+
+def save_video(filename, fps):
     """
         Creates the output file and saves it in form of a video
         :param filename: path of the video used
         :param fps: fps of the video
-        :param size: size of the video
         :return: Void
     """
     print('Creating video output...', end='')
@@ -1535,6 +1534,11 @@ def save_video(filename, fps, size):
 
     os.chdir('../output')
 
+    began = {}
+
+    for tag in tag_set_manual:
+        began[tag] = False
+
     counters = [0] * number_of_tags
     counter = 0
     new_frames = {}
@@ -1544,8 +1548,12 @@ def save_video(filename, fps, size):
         for key in frames_per_tag:
             if len(frames_per_tag[key]) > 0:
                 box = get_next_box(results, key, frames_per_tag[key])
-                idx = frames_per_tag[key].pop(0)
-                present_boxes[idx] = box
+                if began[key] or (not began[key] and not compute_overlap(box, get_all_boxes(began, frames_per_tag,
+                                                                                            key, results))):
+                    idx = frames_per_tag[key].pop(0)
+                    present_boxes[idx] = box
+                    if not began[key]:
+                        began[key] = True
 
         new_frames[counter] = present_boxes
         counter += 1

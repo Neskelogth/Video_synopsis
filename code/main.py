@@ -32,7 +32,7 @@ if __name__ == '__main__':
     if input_gpu == 'n':
         gpu = False
     else:
-        input("Please remember to insert the command to install pytorch with CUDA support on the file called command in the utils folder if it is not installed yet. Press enter to continue")
+        input("Please remember to insert the command to install pytorch with CUDA support on the file called command in the utils folder if it is not installed yet. Press enter to continue...")
 
     # if the requirements are not satisfied, exit with code 2
     file_path = check_files(data_path)
@@ -52,6 +52,10 @@ if __name__ == '__main__':
     print(f'fps = {fps}, size = {size}')
 
     # if the video has not been processed go through entire pipeline
+    # 12/2018-12-03 12-55-00~12-59-59.mp4
+    # 13/2018-12-03 13-05-00~13-09-59.mp4
+    # 13/2018-12-03 13-10-00~13-10-36.mp4
+    # 13/cut_3.mp4
     if not already_processed_file:
         process_video(file_path, gpu, output_process)
         post_process(file_path, size)
@@ -59,7 +63,7 @@ if __name__ == '__main__':
         associate_tag(file_path)
         refine_tags(file_path)
 
-    save_video(file_path, fps, size)
+    save_video(file_path, fps)
 
     if delete_db:
         move_to_trash(file_path)

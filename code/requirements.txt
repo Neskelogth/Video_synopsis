@@ -1,7 +1,6 @@
 wget~=3.2
 gitpython~=3.1.27
 opencv-python~=4.6.0.66
-ffmpeg-python~=0.2.0
 tqdm~=4.64.0
 numpy~=1.23.0
 scikit-image~=0.19.3

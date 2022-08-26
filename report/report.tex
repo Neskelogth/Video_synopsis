@@ -53,7 +53,6 @@
 		
 			\item \textit{wget}
 			\item \textit{gitpython}
-			\item \textit{ffmpeg-python}
 			\item \textit{numpy}
 			\item \textit{tqdm}
 			\item \textit{python-magic}
@@ -65,7 +64,9 @@
 		
 		Moreover, this project uses YOLOv5 for object identification, in particular the YOLOv5s6 set of weights.\\
 		All the required modules are listed in the file requirements.txt inside the ``code'' folder, so it is enough to launch
-		\texttt{python -m pip install -r requirements.txt}
+		\texttt{python -m pip install -r requirements.txt}.\\
+		Note that the script requires git and ffmpeg being accessible through the system PATH, since it relies on git to 
+		get the YOLOv5 repo and on ffmpeg to divide the video into frames and create the video output.
 		
 	\section{Usage}
 	
@@ -167,7 +168,15 @@
 		stops for less than 30 frames, the interpolation mechanism comes into play and interpolates the positions of the person, but that results in an image 
 		in which the interpolated bounding box contains nothing since in the original video the person is blocked.
 
+	
+	\section{Notes}
+	
+		\begin{itemize}
 		
+			\item This script to work requires git and ffmpeg both installed and accessible. 
+		
+		\end{itemize}
+	
 	\nocite{*}
 	\printbibliography
 
