@@ -64,7 +64,7 @@ def check_if_db_exists(filename):
         :param filename: path of the file to be processed
         :return: True if the database exists
     """
-    return False
+
     already_processed = False
     name = filename.split('/')[-1][:-4]
     if os.path.exists('../db/' + name + '.db'):
@@ -525,7 +525,7 @@ def discard_probably_non_interesting_boxes(results, idx, frame_interval):
 
         if sentinel2 and sentinel1 and len(prev_result) < len(current_result):
             results[idx + i][2] = keep_only_nearest_boxes(current_result, prev_result)
-    return results[idx]  ###############################################################################################
+    return results[idx]
 
 
 def filter_boxes(results):
@@ -730,17 +730,17 @@ def find_background(filename):
     indexes = [item[0] for item in results]
 
     names = ['frame_' + str(idx) + '_0.png' for idx in indexes if idx != 1]
-    prev_names = ['frame_' + str(idx - 1) + '_0.png' for idx in indexes if idx != 1]
     os.chdir('../rotated_frames')
+    prev_image = cv2.imread(names[0])
+    prev_image = cv2.cvtColor(prev_image, cv2.COLOR_BGR2GRAY)
     ssims = []
 
-    for i in tqdm(range(len(names))):
-        prev_image = cv2.imread(prev_names[i])
-        prev_image = cv2.cvtColor(prev_image, cv2.COLOR_BGR2GRAY)
+    for i in tqdm(range(1, len(names))):
         image = cv2.imread(names[i])
         image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         (score, diff) = ssim(prev_image, image, full=True)
         ssims.append(score)
+        prev_image = image
 
     max_sim = np.argmax(ssims)
     name = names[max_sim]
@@ -1375,7 +1375,8 @@ def get_next_box(results, tag, indexes):
                 current_tags = item[4].split(' ')
                 current_tags = [tg.replace(' ', '') for tg in current_tags if tg != '' and tg != ' ']
                 index_in_coords = current_tags.index(tag)
-                coords = item[2].replace('[', '').replace(']', '').replace('array', '').replace('(', '').replace(')', '') \
+                coords = item[2].replace('[', '').replace(']', '').replace('array', '').replace('(', '').replace(')',
+                                                                                                                 '') \
                     .replace(',', '').replace('\n', '').replace('tensor', '').replace('.', '') \
                     .replace("device='cuda:0'", '').split(' ')
                 coords = [it.replace(' ', '') for it in coords if it != '' and it != ' ']
@@ -1429,14 +1430,14 @@ def build_image(present_boxes, bg_copy, dictionary, alpha=0.7):
 
         image = cv2.imread(img)
         image = cv2.cvtColor(image, cv2.COLOR_RGB2RGBA)
-        subimage = image[box[1]:box[3], box[0]:box[2]]
+        sub_image = image[box[1]:box[3], box[0]:box[2]]
 
         if any(over):
             sub_bg = bg_copy[box[1]:box[3], box[0]:box[2]]
-            final_subimage = cv2.addWeighted(sub_bg, 1 - alpha, subimage, alpha, 0)
-            bg_copy[box[1]:box[3], box[0]:box[2]] = final_subimage
+            final_sub_image = cv2.addWeighted(sub_bg, 1 - alpha, sub_image, alpha, 0)
+            bg_copy[box[1]:box[3], box[0]:box[2]] = final_sub_image
         else:
-            bg_copy[box[1]:box[3], box[0]:box[2]] = subimage
+            bg_copy[box[1]:box[3], box[0]:box[2]] = sub_image
 
     os.chdir('../output')
 
@@ -1444,7 +1445,6 @@ def build_image(present_boxes, bg_copy, dictionary, alpha=0.7):
 
 
 def get_all_boxes(began, frames, tag, results):
-
     boxes = []
     for key in frames:
         if key != tag and began[key]:

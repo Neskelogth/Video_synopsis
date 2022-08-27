@@ -15,7 +15,7 @@ if __name__ == '__main__':
     input_gpu = input('Type y if you want to use the GPU, n otherwise: ').lower()
     input_delete = input('Do you want to delete the db file after the process?(y/n) ').lower()
     input_delete_frames = \
-        input('Do you want to delete the frames used while processing when the process finishes? (y/n) ').lower()
+        input('Do you want to delete the frames saved for processing when the process finishes?(y/n) ').lower()
     input_output = input('Do you want to see the output of YOLO on the console?(y/n) ').lower()
     data_path = input('Input the name of the file to be examined ')
     data_path = '../data/' + data_path
@@ -52,10 +52,6 @@ if __name__ == '__main__':
     print(f'fps = {fps}, size = {size}')
 
     # if the video has not been processed go through entire pipeline
-    # 12/2018-12-03 12-55-00~12-59-59.mp4
-    # 13/2018-12-03 13-05-00~13-09-59.mp4
-    # 13/2018-12-03 13-10-00~13-10-36.mp4
-    # 13/cut_3.mp4
     if not already_processed_file:
         process_video(file_path, gpu, output_process)
         post_process(file_path, size)
