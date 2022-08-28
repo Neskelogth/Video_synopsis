@@ -10,3 +10,4 @@ db/*.db-journal
 *.bat
 output/ffmpeg_frames.txt
 *.avi
+submit/

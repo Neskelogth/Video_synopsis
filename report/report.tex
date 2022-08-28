@@ -129,7 +129,7 @@
 			
 				This phase is one of the fastest to be executed, and its goal is to transform the coordinates of the detections with a rotation different from 
 				0 and remove all bounding boxes that, probably, are not interesting. To do so, checks the boxes and if one of them is classified as an outlier 
-				is removed. Then, it interpolates boxes if there are no detections in 30 frames or less.
+				is removed. Then, it interpolates boxes if there are no detections less then a certain number of frames.
 			
 			\item \textbf{Background search}:
 			
@@ -161,21 +161,16 @@
 		YOLO may not be very precise if the people are near each other, so the algorithm, since it relies on YOLO's object detection is not that precise. 
 		One possible way to improve the results could be using a fine-tuned version of YOLO to find people or to fine tune it directly with the dataset on which 
 		it should be used onto. Unfortunately, there were not enough data to fine tune it properly so in this project the base version of YOLOv5 was used.\\
-		Another problem regards the video themselves. If the video is not fluid and sometimes gets blocked, like for example the video called ``2018-12-03 13-00-00~13-04-54.avi''
-		the algorithm may not work properly, depending on where the video is blocked and what position did the people have when the video was blocked. In the 
-		video named ``2018-12-03 13-00-00~13-04-54.avi'' there is a person, around 1:30 in the video, going from the top of the view to the bottom that stops 
+		Another problem regards the video themselves. If the video is not fluid and sometimes gets blocked, the algorithm may not work properly.
+		Depending on where the video is blocked and what position did the people have when the video was blocked. Unfortunately, this happens in most of the videos.
+		In the video named ``2018-12-03 13-00-00~13-04-54.avi'' there is a person, around 1:30 in the video, going from the top of the view to the bottom that stops 
 		near the elevator. In this person's case, the video stops some times and one of these is in a pose in which YOLO does not recognize him. Since the person 
-		stops for less than 30 frames, the interpolation mechanism comes into play and interpolates the positions of the person, but that results in an image 
-		in which the interpolated bounding box contains nothing since in the original video the person is blocked.
-
-	
-	\section{Notes}
-	
-		\begin{itemize}
-		
-			\item This script to work requires git and ffmpeg both installed and accessible. 
-		
-		\end{itemize}
+		stops for less than a certain number of frames, the interpolation mechanism comes into play and interpolates the positions of the person, but that results 
+		in an image in which the interpolated bounding box contains nothing since in the original video the person is blocked. Otherwise, if the person stops for a 
+		number of frames higher then a certain threshold, the algorithm will treat that bounding box as the bounding box of a person that exited the field 
+		of view, and will associate another tag to the next time the person appears in another position in the field of view.\\
+		It's also important to note that the script requires git and ffmpeg being installed and accessible through the system path. It also requires python installed 
+		to install the requirements of YOLOv5.
 	
 	\nocite{*}
 	\printbibliography
