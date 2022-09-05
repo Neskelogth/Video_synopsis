@@ -51,7 +51,7 @@ if __name__ == '__main__':
     fps, size = get_video_info(file_path)
     print(f'fps = {fps}, size = {size}')
 
-    # if the video has not been processed go through entire pipeline 
+    # if the video has not been processed go through entire pipeline
     if not already_processed_file:
         process_video(file_path, gpu, output_process)
         post_process(file_path, size)

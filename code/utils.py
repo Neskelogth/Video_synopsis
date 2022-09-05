@@ -7,6 +7,7 @@ import sqlite3
 from sqlite3 import Error
 from collections import Counter
 from math import sqrt, floor
+from subprocess import DEVNULL
 
 # external modules imports
 import wget
@@ -118,7 +119,7 @@ def get_necessary_files(gpu):
 
         print('Installing requirements... ', end='')
         cmd = [sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt']
-        subprocess.check_call(cmd, stdout=subprocess.DEVNULL)
+        subprocess.check_call(cmd, stdout=DEVNULL)
         print('Installed requirements')
 
         if gpu:
@@ -131,12 +132,12 @@ def get_necessary_files(gpu):
 
                 if len(command) != 0:
                     subprocess.check_call([sys.executable, '-m', 'pip', 'uninstall', 'torch', '-y'],
-                                          stdout=subprocess.DEVNULL)
+                                          stdout=DEVNULL)
                     subprocess.check_call([sys.executable, '-m', 'pip', 'uninstall', 'torchvision', '-y'],
-                                          stdout=subprocess.DEVNULL)
+                                          stdout=DEVNULL)
                     print('Uninstalled torch for CPU... ', end='')
 
-                    subprocess.check_call(command, stdout=subprocess.DEVNULL)
+                    subprocess.check_call(command, stdout=DEVNULL)
                     print('Installed GPU support for pytorch')
                 else:
                     print('The file that should contain the command is empty, skipping')
@@ -249,7 +250,7 @@ def divide_into_frames(filename):
     """
     print('Dividing into frames... ', end='')
     command = ['ffmpeg', '-i', filename, '../frames/frame_%d_0.png']
-    subprocess.check_call(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    subprocess.check_call(command, stderr=DEVNULL, stdout=DEVNULL)
     print('Divided into frames')
 
 
@@ -333,7 +334,7 @@ def process_video(filename, gpu, out):
         print('')
         subprocess.check_call(command)
     else:
-        subprocess.check_call(command, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        subprocess.check_call(command, stderr=DEVNULL, stdout=DEVNULL)
 
     print('Finished processing')
 
@@ -610,7 +611,6 @@ def interpolate_coordinates(skipping_indexes, results):
         :return: The modified results
     """
 
-    # Interpolation of coordinates
     for i in range(len(skipping_indexes)):
         item = skipping_indexes[i]
         diff = results[item][0] - results[item - 1][0]
@@ -1575,13 +1575,19 @@ def save_video(filename, fps):
     command = ['ffmpeg', '-f', 'concat', '-i', 'ffmpeg_frames.txt', '-framerate', str(int(fps)),
                '-c:v', 'copy', out_name, '-y']
 
-    subprocess.check_call(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.check_call(command, stdout=DEVNULL, stderr=DEVNULL)
 
     os.chdir('final_frames')
 
     for file in os.listdir('.'):
         if 'dummy_file' not in file:
             os.remove(file)
+
+    command = ['ffmpeg', '-i', out_name, '-c:v', 'libx264', out_name.replace('.mp4', '_compressed.mp4'), '-y']
+    subprocess.check_call(command, stdout=DEVNULL, stderr=DEVNULL)
+
+    os.remove(out_name)
+    os.rename(out_name.replace('.mp4', '_compressed.mp4'), out_name)
 
     os.chdir('../../code')
     print('Finished')
